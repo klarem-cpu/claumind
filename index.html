@@ -480,6 +480,7 @@ function initGoogleAuth() {
       document.getElementById('login-screen').classList.add('hidden');
       renderAll();
       showInlineAI();
+      autoImportGCal();
     }
   });
 
@@ -885,6 +886,36 @@ async function showInlineAI() {
 
 function closeAIModal(){document.getElementById('ai-modal').classList.remove('open');}
 function closeAIOutside(e){if(e.target===document.getElementById('ai-modal'))closeAIModal();}
+
+async function autoImportGCal() {
+  if (!googleToken) return;
+  const now = new Date().toISOString();
+  const end = new Date(Date.now() + 30*24*60*60*1000).toISOString();
+  try {
+    const calListR = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", { headers: { Authorization: "Bearer " + googleToken } });
+    const calList = await calListR.json();
+    const calendars = calList.items || [];
+    let allEvents = [];
+    await Promise.all(calendars.map(async cal => {
+      try {
+        const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=50`, { headers: { Authorization: "Bearer " + googleToken } });
+        const data = await r.json();
+        (data.items||[]).forEach(ev => allEvents.push({ ...ev, calendarName: cal.summary, calendarColor: cal.backgroundColor||"#4285f4" }));
+      } catch(e) {}
+    }));
+    let imported = 0;
+    allEvents.forEach(ev => {
+      if (!tasks.find(t => t.id === "gcal_" + ev.id)) {
+        const fecha = (ev.start.dateTime||ev.start.date||"").substring(0,10);
+        const hora = ev.start.dateTime ? new Date(ev.start.dateTime).toTimeString().substring(0,5) : "";
+        tasks.unshift({ id: "gcal_"+ev.id, titulo: ev.summary||"Sin título", desc: ev.description||"", cat: "trabajo", prio: "media", fecha, hora, done: false, creado: Date.now(), gcalId: ev.id, calendarName: ev.calendarName });
+        imported++;
+      }
+    });
+    if (imported > 0) { await saveToDrive(); renderAll(); showToast("✓ " + imported + " eventos importados de Google Calendar"); }
+    else { showToast("✓ Google Calendar al día"); }
+  } catch(e) {}
+}
 
 function addDemoTasks() {
   if(tasks.length>0) return;
