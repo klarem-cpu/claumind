@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#7c6af7">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,7 +18,7 @@
   --gn:#34d399;--am:#fbbf24;--rd:#f87171;--bl:#60a5fa;--pk:#f472b6;--rs:10px;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 
 /* LOGIN */
 .ls{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:1.4rem;padding:1.5rem}
@@ -43,7 +43,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0.7
 .uav img{width:100%;height:100%;object-fit:cover}
 
 /* LAYOUT */
-.app-body{display:flex;flex:1;overflow:hidden;height:calc(100vh - 53px)}
+.app-body{display:flex;flex:1;overflow:hidden;min-height:0}
 aside{width:210px;min-width:210px;background:var(--sf);border-right:1px solid var(--bd);padding:0.8rem 0.6rem;display:flex;flex-direction:column;gap:0.15rem;overflow-y:auto;flex-shrink:0}
 .al{font-size:0.62rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:var(--mu);padding:0.5rem 0.5rem 0.18rem}
 .ni{display:flex;align-items:center;gap:6px;padding:0.44rem 0.6rem;border-radius:var(--rs);font-size:0.8rem;color:var(--mu);cursor:pointer;border:none;background:none;width:100%;text-align:left;transition:all 0.12s}
@@ -53,7 +53,7 @@ aside{width:210px;min-width:210px;background:var(--sf);border-right:1px solid va
 .ni.active .nc{background:var(--ac);color:#fff}
 .nprog{margin-left:auto;font-size:0.63rem;color:var(--mu)}
 
-main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem}
+main{flex:1;overflow-y:scroll;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrolling:touch}
 .page{display:none}.page.active{display:block}
 
 /* DASHBOARD HOY — nueva estructura */
@@ -218,9 +218,9 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem}
 /* MOBILE */
 @media(max-width:700px){
   aside{display:none}
-  .app-body{height:calc(100vh - 53px - 54px)}
-  main{padding:0.9rem 0.85rem 1rem}
-  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:1px solid var(--bd);z-index:100;padding:0.25rem 0}
+  .app-body{height:calc(100dvh - 53px - 54px - env(safe-area-inset-bottom, 0px))}
+  main{padding:0.9rem 0.85rem 5rem;overflow-y:scroll;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:1px solid var(--bd);z-index:100;padding:0.25rem 0 0;padding-bottom:env(safe-area-inset-bottom)}
   .mnb{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:0.28rem;border:none;background:none;color:var(--mu);font-family:'DM Sans',sans-serif;font-size:0.58rem;cursor:pointer}
   .mnb.active{color:var(--ac2)}
   .mnbi{font-size:1rem}
@@ -543,11 +543,17 @@ function catL(c){const p=projects.find(x=>x.id===c);return p?p.name:CATS[c]?.l||
 function initAuth(){
   if(!window.google){setTimeout(initAuth,500);return;}
   tclient=google.accounts.oauth2.initTokenClient({client_id:CID,scope:SCOPES,callback:async r=>{
-    if(r.error){toast('Error al iniciar sesión');return;}
+    if(r.error){toast('Error al iniciar sesión: '+r.error);return;}
     gToken=r.access_token;
-    await fetchUser();await loadDrive();
+    // Renovar token 5 min antes de que expire (tokens duran ~1hr)
+    setTimeout(()=>{if(tclient)tclient.requestAccessToken({prompt:''});},55*60*1000);
+    await fetchUser();
+    const needLoad=!tasks.length;
+    await loadDrive();
     document.getElementById('ls').classList.add('hidden');
-    renderAll();showInlineAI();setTimeout(autoImport,1200);
+    if(needLoad||tasks.length)renderAll();
+    showInlineAI();
+    setTimeout(autoImport,1500);
   }});
   const sv=localStorage.getItem(SK+'_u');
   if(sv){
@@ -557,7 +563,8 @@ function initAuth(){
     updateUI();
     document.getElementById('ls').classList.add('hidden');
     renderAll();showInlineAI();
-    setTimeout(()=>tclient.requestAccessToken({prompt:''}),800);
+    // Intento silencioso de refrescar token
+    setTimeout(()=>{try{tclient?.requestAccessToken({prompt:''});}catch(e){}},500);
   }
 }
 function signIn(){if(tclient)tclient.requestAccessToken();else toast('Cargando...');}
@@ -577,12 +584,22 @@ function signOut(){if(!confirm('¿Cerrar sesión?'))return;gToken=null;user=null
 async function loadDrive(){
   if(!gToken)return;setSB('sy');
   try{
-    const s=await(await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${DFN}' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}})).json();
-    if(s.files?.length){
-      driveId=s.files[0].id;
-      const c=await(await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?alt=media`,{headers:{Authorization:'Bearer '+gToken}})).json();
-      tasks=c.tasks||[];projects=c.projects||[];
-      localStorage.setItem(SK,JSON.stringify(tasks));localStorage.setItem(SK+'_p',JSON.stringify(projects));
+    const s=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${DFN}' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
+    if(s.status===401){gToken=null;setSB('er');return;}
+    const sd=await s.json();
+    if(sd.files?.length){
+      driveId=sd.files[0].id;
+      const fr=await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?alt=media`,{headers:{Authorization:'Bearer '+gToken}});
+      if(fr.status===401){gToken=null;setSB('er');return;}
+      const c=await fr.json();
+      // Merge: Drive is authoritative, but check if localStorage is newer
+      const driveUpdated=new Date(c.updated||0).getTime();
+      const localTasks=JSON.parse(localStorage.getItem(SK)||'[]');
+      // Use Drive data (it's synced across devices)
+      tasks=c.tasks||[];
+      projects=c.projects||[];
+      localStorage.setItem(SK,JSON.stringify(tasks));
+      localStorage.setItem(SK+'_p',JSON.stringify(projects));
     }else{
       tasks=JSON.parse(localStorage.getItem(SK)||'[]');
       projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');
@@ -590,17 +607,33 @@ async function loadDrive(){
       await saveDrive();
     }
     setSB('ok');
-  }catch(e){tasks=JSON.parse(localStorage.getItem(SK)||'[]');projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');if(!tasks.length)addDemo();setSB('er');}
+  }catch(e){
+    console.log('loadDrive error',e);
+    tasks=JSON.parse(localStorage.getItem(SK)||'[]');
+    projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');
+    if(!tasks.length)addDemo();
+    setSB('er');
+  }
 }
 async function saveDrive(){
-  localStorage.setItem(SK,JSON.stringify(tasks));localStorage.setItem(SK+'_p',JSON.stringify(projects));
-  if(!gToken)return;setSB('sy');
+  // ALWAYS save to localStorage first — this is the source of truth if Drive fails
+  localStorage.setItem(SK,JSON.stringify(tasks));
+  localStorage.setItem(SK+'_p',JSON.stringify(projects));
+  if(!gToken){setSB('er');return;}
+  setSB('sy');
   const body=JSON.stringify({tasks,projects,updated:new Date().toISOString()});
   try{
-    if(driveId){await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});}
-    else{const m=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:DFN,mimeType:'application/json'})})).json();driveId=m.id;await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});}
+    if(driveId){
+      const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});
+      if(r.status===401){gToken=null;setSB('er');toast('Sesión expirada, vuelve a iniciar sesión');return;}
+    }else{
+      const m=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:DFN,mimeType:'application/json'})})).json();
+      if(!m.id){setSB('er');return;}
+      driveId=m.id;
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});
+    }
     setSB('ok');
-  }catch(e){setSB('er');}
+  }catch(e){console.log('saveDrive error',e);setSB('er');}
 }
 async function syncNow(){if(!gToken){signIn();return;}await loadDrive();renderAll();toast('✓ Sincronizado');}
 
@@ -1044,43 +1077,59 @@ document.addEventListener('click',e=>{if(e.target.classList.contains('pclr')){se
 
 // ─── AI ───────────────────────────────────────────────────────
 const CLAUDE_API='https://api.anthropic.com/v1/messages';
-async function callClaude(systemPrompt, userMsg, maxTokens=800){
-  const r=await fetch(CLAUDE_API,{method:'POST',headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01','x-api-key':''},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTokens,system:systemPrompt,messages:[{role:'user',content:userMsg}]})});
-  if(!r.ok){const err=await r.text();throw new Error(err);}
-  const d=await r.json();
-  return d.content?.map(c=>c.text||'').join('')||'';
+async function callClaude(prompt, maxTokens=800){
+  try{
+    const r=await fetch(CLAUDE_API,{method:'POST',headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-calls':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTokens,system:'Eres asistente de productividad ejecutiva. Analiza tareas y da consejos concretos en español. Responde en HTML con <p>, <strong>, <ul>, <li>.',messages:[{role:'user',content:prompt}]})});
+    if(!r.ok){const e=await r.text();throw new Error(e);}
+    const d=await r.json();
+    return d.content?.map(c=>c.text||'').join('')||'';
+  }catch(e){throw e;}
 }
 
 async function openAI(){
   document.getElementById('aim').classList.add('open');
   document.getElementById('ai-res').innerHTML=`<div class="ald"><div class="dots"><span></span><span></span><span></span></div>Analizando...</div>`;
   const pend=tasks.filter(t=>!t.done);
-  if(!pend.length){document.getElementById('ai-res').innerHTML='<p>¡No tienes tareas pendientes!</p>';return;}
+  if(!pend.length){document.getElementById('ai-res').innerHTML='<p>¡No tienes tareas pendientes! 🎉</p>';return;}
   const venc=tasks.filter(t=>t.cat==='pago'&&!t.done&&t.fecha&&t.fecha<ts());
   const cumpleHoy=tasks.filter(t=>t.cat==='cumple'&&t.fecha?.substring(5)===ts().substring(5));
   const sum=pend.slice(0,15).map(t=>`- [${t.prio}] ${t.titulo} (${catL(t.cat)})${t.fecha?' '+t.fecha:''}`).join('\n');
+  const prompt=`Tareas pendientes:\n${sum}\n${venc.length?'\n⚠ PAGOS VENCIDOS: '+venc.map(t=>t.titulo).join(', '):''}\n${cumpleHoy.length?'\n🎂 CUMPLEAÑOS HOY: '+cumpleHoy.map(t=>t.titulo).join(', '):''}.\n\nDame: 1) Prioridad de hoy. 2) Alertas urgentes. 3) Consejo rápido.`;
   try{
-    const resp=await fetch(CLAUDE_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:900,system:'Eres asistente de productividad ejecutiva. Analiza tareas y da consejos concretos en español. Responde en HTML con <p>, <strong>, <ul>, <li>.',messages:[{role:'user',content:`Tareas pendientes:\n${sum}\n${venc.length?'\n⚠ PAGOS VENCIDOS: '+venc.map(t=>t.titulo).join(', '):''}\n${cumpleHoy.length?'\n🎂 CUMPLEAÑOS HOY: '+cumpleHoy.map(t=>t.titulo).join(', '):''}.\n\nDame: 1) Prioridad de hoy. 2) Alertas urgentes. 3) Consejo rápido.`}]})});
-    if(!resp.ok)throw new Error(await resp.text());
+    const resp=await fetch(CLAUDE_API,{method:'POST',headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-calls':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:900,system:'Eres asistente de productividad ejecutiva en español. Responde en HTML con <p>, <strong>, <ul>, <li>. Sé conciso y directo.',messages:[{role:'user',content:prompt}]})});
+    if(!resp.ok){throw new Error('HTTP '+resp.status);}
     const d=await resp.json();
     document.getElementById('ai-res').innerHTML=d.content?.map(c=>c.text||'').join('')||'Sin respuesta.';
-  }catch(e){document.getElementById('ai-res').innerHTML=`<p style="color:var(--rd)">Error al conectar con IA. Verifica que la app esté en servidor HTTPS y el modelo esté disponible.</p><p style="font-size:0.75rem;color:var(--mu);margin-top:6px">${e.message||''}</p>`;}
+  }catch(e){
+    // Mostrar resumen manual si IA no disponible
+    const urgentes=pend.filter(t=>t.prio==='alta');
+    const hoyT=pend.filter(t=>t.fecha===ts());
+    document.getElementById('ai-res').innerHTML=`
+      <p><strong>Resumen de tus tareas:</strong></p>
+      <ul>
+        <li>📋 <strong>${pend.length}</strong> tareas pendientes</li>
+        ${urgentes.length?`<li>🔴 <strong>${urgentes.length}</strong> urgentes: ${urgentes.slice(0,3).map(t=>t.titulo).join(', ')}</li>`:''}
+        ${hoyT.length?`<li>📅 <strong>${hoyT.length}</strong> para hoy</li>`:''}
+        ${venc.length?`<li>⚠ <strong>${venc.length}</strong> pago(s) vencido(s)!</li>`:''}
+        ${cumpleHoy.length?`<li>🎂 Cumpleaños hoy: ${cumpleHoy.map(t=>t.titulo).join(', ')}</li>`:''}
+      </ul>
+      <p style="font-size:0.78rem;color:var(--mu);margin-top:8px">ℹ La IA con Claude requiere servidor local (localhost). Desde GitHub Pages el navegador bloquea la conexión por seguridad (CORS). Para usarla: abre la app con py -m http.server 8080 en tu PC.</p>`;
+  }
 }
 
 async function showInlineAI(){
   const pend=tasks.filter(t=>!t.done);
   if(!pend.length){document.getElementById('ai-inline').innerHTML='';return;}
-  document.getElementById('ai-inline').innerHTML=`<div class="aip"><div class="aih"><span class="aibdg">IA</span><span class="ait">Sugerencia del día</span></div><div class="aib" id="ai-it"><div class="ald"><div class="dots"><span></span><span></span><span></span></div>Analizando...</div></div></div>`;
+  // Show a simple local summary — no API call needed for inline
   const venc=tasks.filter(t=>t.cat==='pago'&&!t.done&&t.fecha&&t.fecha<ts());
   const cumpleHoy=tasks.filter(t=>t.cat==='cumple'&&t.fecha?.substring(5)===ts().substring(5));
-  const sum=pend.slice(0,5).map(t=>`[${t.prio}] ${t.titulo}`).join(', ');
-  try{
-    const resp=await fetch(CLAUDE_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:160,system:'Asistente de productividad. Da UN consejo muy breve en español, 1-2 oraciones. Sin markdown.',messages:[{role:'user',content:`Tareas: ${sum}.${venc.length?' ALERTA: '+venc.length+' pago(s) vencido(s)!':''}${cumpleHoy.length?' 🎂 Cumpleaños hoy: '+cumpleHoy.map(t=>t.titulo).join(', ')+'!':''} ¿Qué hago primero?`}]})});
-    const el=document.getElementById('ai-it');
-    if(!resp.ok){if(el)el.textContent='';document.getElementById('ai-inline').innerHTML='';return;}
-    const d=await resp.json();
-    if(el)el.textContent=d.content?.map(c=>c.text||'').join('')||'';
-  }catch(e){document.getElementById('ai-inline').innerHTML='';}
+  const urgentes=pend.filter(t=>t.prio==='alta'&&!t.done);
+  let tip='';
+  if(venc.length) tip=`⚠ Tienes ${venc.length} pago(s) vencido(s): ${venc.map(t=>t.titulo).join(', ')}`;
+  else if(cumpleHoy.length) tip=`🎂 ¡Hoy es el cumpleaños de ${cumpleHoy.map(t=>t.titulo.replace('Cumpleaños de ','').replace('Cumpleaños ','').replace('🎂','').trim()).join(' y ')}!`;
+  else if(urgentes.length) tip=`🔴 Tienes ${urgentes.length} tarea(s) urgente(s). Empieza con: ${urgentes[0].titulo}`;
+  else tip=`Tienes ${pend.length} tareas pendientes. ¡Buen provecho!`;
+  document.getElementById('ai-inline').innerHTML=`<div class="aip"><div class="aih"><span class="aibdg">Hoy</span><span class="ait">Resumen</span></div><div class="aib">${tip}</div></div>`;
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────
