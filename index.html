@@ -670,8 +670,17 @@ function saveLocal(){
   localStorage.setItem('cm_updated', new Date().toISOString());
 }
 function normalizeTasks(arr){
-  // Asegurar que done siempre sea boolean (no string "SI"/"NO" ni "true")
-  return (arr||[]).map(t=>({...t, done: t.done===true||t.done==='SI'||t.done==='true'}));
+  return (arr||[]).map(t=>({
+    ...t,
+    // done siempre boolean
+    done: t.done===true||t.done==='SI'||t.done==='true',
+    // monto siempre string numérico o vacío
+    monto: t.monto&&!isNaN(parseFloat(t.monto)) ? String(parseFloat(t.monto)) : (t.monto||''),
+    // fechaPago siempre string
+    fechaPago: t.fechaPago||'',
+    empresa: t.empresa||'',
+    checklist: Array.isArray(t.checklist)?t.checklist:[],
+  }));
 }
 function loadLocal(){
   const t=localStorage.getItem('cm_tasks')
@@ -706,26 +715,26 @@ async function findOrCreateSheet(){
   // Buscar o crear carpeta ClauMind en Drive
   let folderId=localStorage.getItem('cm_folder_id');
   if(!folderId){
-    // Buscar carpeta MISAPPS por nombre
-    // También probar con ID directo si fue guardado antes
-    const savedFolderId=localStorage.getItem('cm_folder_id');
-    if(savedFolderId){
-      // Verificar que todavía existe
-      const chk=await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name`,{headers:{Authorization:'Bearer '+gToken}});
-      if(chk.ok){folderId=savedFolderId;}
-      else{localStorage.removeItem('cm_folder_id');}
-    }
-    if(!folderId){
-      // Buscar por nombre MISAPPS primero, luego ClauMind
+    // ID directo de la carpeta MISAPPS en Drive de Claudia
+    const MISAPPS_ID='1fgIVoExdfWXYqbbuQVEgiPayVpGcUFUa';
+    const savedFolderId=localStorage.getItem('cm_folder_id')||MISAPPS_ID;
+    // Verificar que existe y tenemos acceso
+    const chk=await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name`,{headers:{Authorization:'Bearer '+gToken}});
+    if(chk.ok){
+      folderId=savedFolderId;
+      localStorage.setItem('cm_folder_id',folderId);
+    } else {
+      // Buscar por nombre como fallback
       for(const fname of ['MISAPPS','ClauMind']){
         const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
         const fd2=await fq.json();
-        if(fd2.files?.length){folderId=fd2.files[0].id;break;}
+        if(fd2.files?.length){folderId=fd2.files[0].id;localStorage.setItem('cm_folder_id',folderId);break;}
       }
     }
     if(!folderId){
       const fc=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:'ClauMind',mimeType:'application/vnd.google-apps.folder',description:'Datos de la app ClauMind — no borrar'})})).json();
       folderId=fc.id;
+      localStorage.setItem('cm_folder_id',folderId);
     }
     localStorage.setItem('cm_folder_id',folderId);
   }
@@ -1301,14 +1310,14 @@ function renderPagos(){
     });
     let h='';
     // Resumen total del período
-    const totalPeriodo=realizados.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+    const totalPeriodo=realizados.filter(t=>t.monto&&parseFloat(t.monto)>0).reduce((s,t)=>s+parseFloat(t.monto),0);
     h+=`<div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:0.7rem 0.9rem;margin-bottom:0.8rem;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:0.8rem;color:var(--mu)">${realizados.length} pago(s) realizados${desde||hasta?' en el período':''}</span>
       <span style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700;color:var(--gn)">$${totalPeriodo.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>
     </div>`;
     Object.keys(porMes).sort().reverse().forEach(mes=>{
       const[y,m]=mes.split('-');
-      const tot=porMes[mes].filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+      const tot=porMes[mes].filter(t=>t.monto&&parseFloat(t.monto)>0).reduce((s,t)=>s+parseFloat(t.monto),0);
       h+=`<div style="font-size:0.72rem;font-weight:600;color:var(--mu);text-transform:uppercase;padding:0.5rem 0 0.3rem;border-bottom:1px solid var(--bd);margin-bottom:6px;display:flex;justify-content:space-between">
         <span>📅 ${MN[parseInt(m)-1]} ${y}</span>
         <span style="color:var(--gn)">$${tot.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>
@@ -1927,6 +1936,7 @@ function showBackupMenu(){
       <button onclick="exportJSON();document.getElementById('backup-modal')?.remove()" style="background:var(--ac);color:#fff;border:none;padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">⬇ Descargar respaldo (.json)</button>
       <button onclick="importJSON();document.getElementById('backup-modal')?.remove()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">⬆ Restaurar desde archivo .json</button>
       <button onclick="syncNow();document.getElementById('backup-modal')?.remove()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">↻ Forzar sync con Sheets</button>
+      <button onclick="localStorage.removeItem('cm_sheet_id');localStorage.removeItem('cm_folder_id');sheetId=null;toast('Hoja reseteada — haz Sync para crear en MISAPPS');document.getElementById('backup-modal')?.remove()" style="background:rgba(248,113,113,0.1);color:var(--rd);border:1px solid rgba(248,113,113,0.2);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">🔄 Recrear hoja en MISAPPS</button>
       <div style="font-size:0.68rem;color:var(--mu);margin-top:4px">${tasks.length} tareas · ${projects.length} proyectos · Última sync: ${localStorage.getItem('cm_updated')?new Date(localStorage.getItem('cm_updated')).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'nunca'}</div>
     </div>
     <button onclick="this.closest('#backup-modal').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--mu);cursor:pointer;font-size:1rem">✕</button>
