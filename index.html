@@ -254,8 +254,9 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   <div class="logo">Clau<span>Mind</span></div>
   <div class="hdr">
     <span class="sbadge" id="sb">✓ Sync</span>
-    <button class="btn-g keepm" onclick="syncNow()">↻</button>
+    <button class="btn-g keepm" onclick="syncNow()" title="Sincronizar">↻</button>
     <button class="btn-g" onclick="openAI()">✦ IA</button>
+    <button class="btn-g" onclick="showBackupMenu()" title="Respaldo de datos">💾</button>
     <button class="btn-p" onclick="openModal()">+ Tarea</button>
     <div class="uchip" onclick="signOut()"><div class="uav" id="uav"></div><span id="uname">Tú</span></div>
   </div>
@@ -278,6 +279,9 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   <div class="al" style="margin-top:0.4rem">Proyectos</div>
   <div id="projs-nav"></div>
   <button class="ni" onclick="openNewProject()" style="color:var(--ac2);font-size:0.76rem">+ Nuevo proyecto</button>
+  <div class="al" style="margin-top:0.4rem">Datos</div>
+  <button class="ni" onclick="openSheet()" style="color:var(--gn)">📊 Ver en Google Sheets</button>
+  <button class="ni" onclick="showBackupMenu()">💾 Respaldo</button>
 </aside>
 
 <main>
@@ -503,8 +507,11 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────
 const CID='456139514751-76d2t0gtbk8obm937n06qv2a1l0odvc7.apps.googleusercontent.com';
-const SCOPES='https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file profile email';
-const SK='claumind_v3', DFN='claumind_tasks_v3.json';
+const SCOPES='https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets profile email';
+const SHEET_NAME='ClauMind_Tareas'; // Nombre de la hoja en tu Google Drive — nunca cambia
+// SK = clave localStorage. DFN = nombre archivo Drive.
+// IMPORTANTE: SK nunca cambia — es la clave permanente de tus datos locales.
+const SK='claumind_data', DFN='ClauMind_datos.json';
 
 // ─── STATE ───────────────────────────────────────────────────
 let tasks=[], projects=[], gToken=null, driveId=null, user=null;
@@ -581,62 +588,186 @@ function updateUI(){
 }
 function signOut(){if(!confirm('¿Cerrar sesión?'))return;gToken=null;user=null;driveId=null;localStorage.removeItem(SK+'_u');document.getElementById('ls').classList.remove('hidden');}
 
-// ─── DRIVE ────────────────────────────────────────────────────
-async function loadDrive(){
-  if(!gToken)return;setSB('sy');
+// ─── STORAGE — 3 CAPAS ───────────────────────────────────────
+// 1. localStorage (instantáneo, este dispositivo)
+// 2. Google Sheets (hoja de cálculo en tu Drive — visible, editable, permanente)
+// 3. JSON en Drive (respaldo completo con todos los campos)
+
+let sheetId = localStorage.getItem('cm_sheet_id') || null;
+
+function saveLocal(){
+  localStorage.setItem('cm_tasks', JSON.stringify(tasks));
+  localStorage.setItem('cm_projects', JSON.stringify(projects));
+  localStorage.setItem('cm_updated', new Date().toISOString());
+}
+function loadLocal(){
+  const t=localStorage.getItem('cm_tasks');
+  const p=localStorage.getItem('cm_projects');
+  if(t)tasks=JSON.parse(t);
+  if(p)projects=JSON.parse(p);
+}
+
+// ── GOOGLE SHEETS ─────────────────────────────────────────────
+const SHEETS_API='https://sheets.googleapis.com/v4/spreadsheets';
+
+async function findOrCreateSheet(){
+  // 1. Buscar por ID guardado
+  if(sheetId){
+    const r=await fetch(`${SHEETS_API}/${sheetId}?fields=spreadsheetId`,{headers:{Authorization:'Bearer '+gToken}});
+    if(r.ok) return sheetId;
+    sheetId=null; localStorage.removeItem('cm_sheet_id');
+  }
+  // 2. Buscar por nombre en Drive
+  const s=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${SHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
+  const sd=await s.json();
+  if(sd.files?.length){
+    sheetId=sd.files[0].id;
+    localStorage.setItem('cm_sheet_id',sheetId);
+    return sheetId;
+  }
+  // 3. Crear nueva hoja
+  const create=await fetch(SHEETS_API,{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({
+    properties:{title:SHEET_NAME},
+    sheets:[
+      {properties:{sheetId:0,title:'Tareas'}},
+      {properties:{sheetId:1,title:'Proyectos'}}
+    ]
+  })});
+  const sheet=await create.json();
+  sheetId=sheet.spreadsheetId;
+  localStorage.setItem('cm_sheet_id',sheetId);
+  // Escribir encabezados
+  await writeSheetHeaders();
+  return sheetId;
+}
+
+async function writeSheetHeaders(){
+  const taskHeaders=[['ID','Título','Categoría','Prioridad','Fecha','Hora','Estado','Proyecto','Recurrencia','Monto','Proveedor','Zoom','Notas','Completada','Creada','GCalID']];
+  const projHeaders=[['ID','Nombre','Color','Descripción','Creado']];
+  await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:P1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskHeaders})});
+  await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:projHeaders})});
+}
+
+async function saveToSheets(){
+  if(!gToken||!sheetId) return;
   try{
-    const s=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${DFN}' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
-    if(s.status===401){gToken=null;setSB('er');return;}
-    const sd=await s.json();
-    if(sd.files?.length){
-      driveId=sd.files[0].id;
-      const fr=await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?alt=media`,{headers:{Authorization:'Bearer '+gToken}});
-      if(fr.status===401){gToken=null;setSB('er');return;}
-      const c=await fr.json();
-      // Merge: Drive is authoritative, but check if localStorage is newer
-      const driveUpdated=new Date(c.updated||0).getTime();
-      const localTasks=JSON.parse(localStorage.getItem(SK)||'[]');
-      // Use Drive data (it's synced across devices)
-      tasks=c.tasks||[];
-      projects=c.projects||[];
-      localStorage.setItem(SK,JSON.stringify(tasks));
-      localStorage.setItem(SK+'_p',JSON.stringify(projects));
-    }else{
-      tasks=JSON.parse(localStorage.getItem(SK)||'[]');
-      projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');
-      if(!tasks.length)addDemo();
-      await saveDrive();
+    // Tareas → filas (fila 1 = encabezado, datos desde fila 2)
+    const taskRows=tasks.map(t=>[
+      t.id||'', t.titulo||'', t.cat||'', t.prio||'', t.fecha||'', t.hora||'',
+      t.status||'todo', t.projId||'', t.recur||'', t.monto||'', t.proveedor||'',
+      t.zoom||'', t.desc||'', t.done?'SI':'NO',
+      t.creado?new Date(t.creado).toLocaleString('es-MX'):'',
+      t.gcalId||t.gcalEventId||''
+    ]);
+    const projRows=projects.map(p=>[p.id||'',p.name||'',p.color||'',p.desc||'',p.creado?new Date(p.creado).toLocaleString('es-MX'):'']);
+    // Limpiar y reescribir
+    await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A2:P10000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskRows.length?taskRows:[[]]})});
+    await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A2:E1000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:projRows.length?projRows:[[]]})});
+  }catch(e){console.log('saveToSheets error',e);}
+}
+
+async function loadFromSheets(){
+  if(!gToken||!sheetId) return false;
+  try{
+    const r=await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:P10000`,{headers:{Authorization:'Bearer '+gToken}});
+    if(!r.ok) return false;
+    const d=await r.json();
+    const rows=(d.values||[]).slice(1).filter(r=>r[0]); // skip header, skip empty
+    if(!rows.length) return false;
+    tasks=rows.map(r=>({
+      id:r[0]||Date.now().toString(), titulo:r[1]||'', cat:r[2]||'trabajo', prio:r[3]||'media',
+      fecha:r[4]||'', hora:r[5]||'', status:r[6]||'todo', projId:r[7]||'', recur:r[8]||'',
+      monto:r[9]||'', proveedor:r[10]||'', zoom:r[11]||'', desc:r[12]||'',
+      done:r[13]==='SI', creado:r[14]?new Date(r[14]).getTime():Date.now(),
+      gcalId:r[15]||null, gcalEventId:null, checklist:[], factura:null, facturaName:null
+    }));
+    // Load projects
+    const rp=await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1000`,{headers:{Authorization:'Bearer '+gToken}});
+    if(rp.ok){
+      const dp=await rp.json();
+      const rowsp=(dp.values||[]).slice(1).filter(r=>r[0]);
+      projects=rowsp.map(r=>({id:r[0],name:r[1]||'',color:r[2]||'#7c6af7',desc:r[3]||'',creado:r[4]?new Date(r[4]).getTime():Date.now()}));
     }
-    setSB('ok');
+    return true;
+  }catch(e){console.log('loadFromSheets error',e);return false;}
+}
+
+async function loadDrive(){
+  // Siempre cargar local primero para respuesta inmediata
+  loadLocal();
+  if(!gToken){if(!tasks.length)addDemo();return;}
+  setSB('sy');
+  try{
+    await findOrCreateSheet();
+    const loaded=await loadFromSheets();
+    if(loaded){
+      saveLocal();setSB('ok');
+    } else {
+      // Sheets vacío — subir lo que hay en local
+      if(!tasks.length)addDemo();
+      await writeSheetHeaders();
+      await saveToSheets();
+      setSB('ok');
+    }
   }catch(e){
     console.log('loadDrive error',e);
-    tasks=JSON.parse(localStorage.getItem(SK)||'[]');
-    projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');
     if(!tasks.length)addDemo();
     setSB('er');
   }
 }
+
+// saveDrive = guardar en localStorage + Google Sheets
 async function saveDrive(){
-  // ALWAYS save to localStorage first — this is the source of truth if Drive fails
-  localStorage.setItem(SK,JSON.stringify(tasks));
-  localStorage.setItem(SK+'_p',JSON.stringify(projects));
-  if(!gToken){setSB('er');return;}
+  saveLocal();
+  if(!gToken) return;
   setSB('sy');
-  const body=JSON.stringify({tasks,projects,updated:new Date().toISOString()});
   try{
-    if(driveId){
-      const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});
-      if(r.status===401){gToken=null;setSB('er');toast('Sesión expirada, vuelve a iniciar sesión');return;}
-    }else{
-      const m=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:DFN,mimeType:'application/json'})})).json();
-      if(!m.id){setSB('er');return;}
-      driveId=m.id;
-      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveId}?uploadType=media`,{method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body});
-    }
+    if(!sheetId) await findOrCreateSheet();
+    await saveToSheets();
     setSB('ok');
   }catch(e){console.log('saveDrive error',e);setSB('er');}
 }
-async function syncNow(){if(!gToken){signIn();return;}await loadDrive();renderAll();toast('✓ Sincronizado');}
+
+async function syncNow(){
+  if(!gToken){signIn();return;}
+  setSB('sy');
+  try{
+    await findOrCreateSheet();
+    const loaded=await loadFromSheets();
+    if(loaded){saveLocal();renderAll();toast('✓ Sincronizado con Google Sheets');}
+    else{await saveToSheets();toast('✓ Datos subidos a Google Sheets');}
+    setSB('ok');
+  }catch(e){setSB('er');toast('Error de sincronización');}
+}
+
+function openSheet(){
+  if(sheetId) window.open(`https://docs.google.com/spreadsheets/d/${sheetId}`,'_blank');
+  else toast('Sincroniza primero para crear la hoja');
+}
+
+// ─── EXPORT / IMPORT MANUAL (respaldo) ───────────────────────
+function exportJSON(){
+  const data={tasks,projects,exported:new Date().toISOString(),version:'claumind_v5'};
+  const a=document.createElement('a');
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));
+  a.download=`claumind_respaldo_${ts()}.json`;a.click();
+  toast('✓ Respaldo descargado');
+}
+function importJSON(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json';
+  inp.onchange=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        if(!d.tasks&&!d.projects){toast('Archivo no válido');return;}
+        if(!confirm(`¿Restaurar ${(d.tasks||[]).length} tareas y ${(d.projects||[]).length} proyectos? Se reemplazarán los datos actuales.`))return;
+        tasks=d.tasks||[];projects=d.projects||[];
+        saveDrive();renderAll();toast('✓ Datos restaurados');
+      }catch(ex){toast('Error al leer el archivo');}
+    };r.readAsText(file);
+  };inp.click();
+}
 
 // ─── GCAL ─────────────────────────────────────────────────────
 async function autoImport(){
@@ -1169,6 +1300,34 @@ function addDemo(){
     {id:'d6',titulo:'Definir estrategia Q3',cat:'trabajo',prio:'media',fecha:'',done:false,creado:Date.now(),checklist:[],status:'todo',projId:'p1',recur:'',zoom:'',hora:''},
   ];
   projects=[{id:'p1',name:'Estrategia Q3',color:'#7c6af7',desc:'Planeación trimestral',creado:Date.now()}];
+}
+
+// ─── BACKUP MENU ──────────────────────────────────────────────
+function showBackupMenu(){
+  const existing=document.getElementById('backup-modal');
+  if(existing){existing.remove();return;}
+  const driveInfo=sheetId?`<div style="font-size:0.72rem;color:var(--gn);margin-bottom:0.8rem">✓ Conectado a Google Sheets · <a href="https://docs.google.com/spreadsheets/d/${sheetId}" target="_blank" style="color:var(--gn)">Abrir hoja ↗</a></div>`:`<div style="font-size:0.72rem;color:var(--am);margin-bottom:0.8rem">⚠ Sin hoja de cálculo (sincroniza para crear)</div>`;
+  const div=document.createElement('div');
+  div.id='backup-modal';
+  div.style.cssText='position:fixed;top:60px;right:12px;background:var(--sf);border:1px solid var(--bd2);border-radius:14px;padding:1.1rem;z-index:500;width:270px;box-shadow:0 8px 32px rgba(0,0,0,0.4)';
+  div.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:0.9rem;margin-bottom:0.7rem">💾 Mis datos</div>
+    ${driveInfo}
+    <div style="font-size:0.75rem;color:var(--mu);margin-bottom:0.8rem;line-height:1.5">
+      Tus datos se guardan en <strong style="color:var(--gn)">Google Sheets</strong> — una hoja de cálculo real en tu Drive que puedes abrir, ver y editar. También se guarda una copia local en este dispositivo.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button onclick="openSheet();document.getElementById('backup-modal')?.remove()" style="background:rgba(52,211,153,0.15);color:var(--gn);border:1px solid rgba(52,211,153,0.3);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">📊 Abrir hoja de cálculo en Drive</button>
+      <button onclick="exportJSON();document.getElementById('backup-modal')?.remove()" style="background:var(--ac);color:#fff;border:none;padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">⬇ Descargar respaldo (.json)</button>
+      <button onclick="importJSON();document.getElementById('backup-modal')?.remove()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">⬆ Restaurar desde archivo .json</button>
+      <button onclick="syncNow();document.getElementById('backup-modal')?.remove()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);padding:0.55rem;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;cursor:pointer;text-align:left">↻ Forzar sync con Sheets</button>
+      <div style="font-size:0.68rem;color:var(--mu);margin-top:4px">${tasks.length} tareas · ${projects.length} proyectos · Última sync: ${localStorage.getItem('cm_updated')?new Date(localStorage.getItem('cm_updated')).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'nunca'}</div>
+    </div>
+    <button onclick="this.closest('#backup-modal').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--mu);cursor:pointer;font-size:1rem">✕</button>
+  `;
+  document.body.appendChild(div);
+  // Close on outside click
+  setTimeout(()=>document.addEventListener('click',function h(e){if(!div.contains(e.target)&&e.target.getAttribute('onclick')!=='showBackupMenu()'){div.remove();document.removeEventListener('click',h);}},),100);
 }
 
 // ─── INIT ─────────────────────────────────────────────────────
