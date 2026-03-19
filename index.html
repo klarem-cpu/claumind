@@ -11,6 +11,7 @@
 <title>ClauMind</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#0e0e12;--sf:#17171f;--sf2:#1e1e28;--bd:rgba(255,255,255,0.07);--bd2:rgba(255,255,255,0.13);
@@ -698,12 +699,16 @@ async function findOrCreateSheet(){
   // Buscar o crear carpeta ClauMind en Drive
   let folderId=localStorage.getItem('cm_folder_id');
   if(!folderId){
-    // Buscar carpeta "ClauMind" en Drive (donde se guarda todo seguro)
-    const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='ClauMind' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
-    const fd2=await fq.json();
-    if(fd2.files?.length){folderId=fd2.files[0].id;}
-    else{
-      // Crear carpeta ClauMind con descripción
+    // Buscar carpeta MISAPPS (donde está el index.html de la app)
+    // Si no existe, buscar o crear carpeta ClauMind como alternativa
+    const folderNames=['MISAPPS','ClauMind'];
+    for(const fname of folderNames){
+      const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
+      const fd2=await fq.json();
+      if(fd2.files?.length){folderId=fd2.files[0].id;break;}
+    }
+    if(!folderId){
+      // Crear carpeta ClauMind si no existe ninguna de las anteriores
       const fc=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:'ClauMind',mimeType:'application/vnd.google-apps.folder',description:'Datos de la app ClauMind — no borrar'})})).json();
       folderId=fc.id;
     }
@@ -731,9 +736,9 @@ async function findOrCreateSheet(){
 }
 
 async function writeSheetHeaders(){
-  const taskHeaders=[['ID','Título','Categoría','Prioridad','Fecha','Hora','Estado','Proyecto','Recurrencia','Monto','Proveedor','Zoom','Notas','Completada','Creada','GCalID']];
+  const taskHeaders=[['ID','Título','Categoría','Prioridad','Fecha Vcto','Hora','Estado','Proyecto','Recurrencia','Monto','Proveedor','Empresa','Zoom','Notas','Completada','Fecha de Pago','Creada','GCalID']];
   const projHeaders=[['ID','Nombre','Color','Descripción','Creado']];
-  await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:P1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskHeaders})});
+  await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:R1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskHeaders})});
   await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:projHeaders})});
 }
 
@@ -744,13 +749,14 @@ async function saveToSheets(){
     const taskRows=tasks.map(t=>[
       t.id||'', t.titulo||'', t.cat||'', t.prio||'', t.fecha||'', t.hora||'',
       t.status||'todo', t.projId||'', t.recur||'', t.monto||'', t.proveedor||'',
-      t.zoom||'', t.desc||'', t.done?'SI':'NO',
+      t.empresa||'', t.zoom||'', t.desc||'', t.done?'SI':'NO',
+      t.fechaPago||'',
       t.creado?new Date(t.creado).toLocaleString('es-MX'):'',
       t.gcalId||t.gcalEventId||''
     ]);
     const projRows=projects.map(p=>[p.id||'',p.name||'',p.color||'',p.desc||'',p.creado?new Date(p.creado).toLocaleString('es-MX'):'']);
-    // Limpiar y reescribir
-    await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A2:P10000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskRows.length?taskRows:[[]]})});
+    // Limpiar y reescribir (ahora 18 columnas A:R)
+    await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A2:R10000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:taskRows.length?taskRows:[[]]})});
     await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A2:E1000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:projRows.length?projRows:[[]]})});
   }catch(e){console.log('saveToSheets error',e);}
 }
@@ -766,9 +772,10 @@ async function loadFromSheets(){
     tasks=rows.map(r=>({
       id:r[0]||Date.now().toString(), titulo:r[1]||'', cat:r[2]||'trabajo', prio:r[3]||'media',
       fecha:r[4]||'', hora:r[5]||'', status:r[6]||'todo', projId:r[7]||'', recur:r[8]||'',
-      monto:r[9]||'', proveedor:r[10]||'', zoom:r[11]||'', desc:r[12]||'',
-      done:r[13]==='SI', creado:r[14]?new Date(r[14]).getTime():Date.now(),
-      gcalId:r[15]||null, gcalEventId:null, checklist:[], factura:null, facturaName:null
+      monto:r[9]||'', proveedor:r[10]||'', empresa:r[11]||'', zoom:r[12]||'', desc:r[13]||'',
+      done:r[14]==='SI', fechaPago:r[15]||'',
+      creado:r[16]?new Date(r[16]).getTime():Date.now(),
+      gcalId:r[17]||null, gcalEventId:null, checklist:[], factura:null, facturaName:null
     }));
     // Load projects
     const rp=await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1000`,{headers:{Authorization:'Bearer '+gToken}});
@@ -1059,22 +1066,49 @@ function renderDashPagos(){
 }
 
 function marcarPagado(e,id){
-  e.stopPropagation();
+  if(e)e.stopPropagation();
   const t=tasks.find(x=>x.id===id);
   if(!t)return;
-  // Preguntar fecha en que se realizó el pago
+  // Cerrar detail modal si está abierto
+  document.getElementById('dm')?.classList.remove('open');
+  // Mostrar modal de fecha de pago
+  showPagoModal(t);
+}
+
+function showPagoModal(t){
+  // Remover modal anterior si existe
+  document.getElementById('pago-date-modal')?.remove();
   const hoy=ts();
-  const fechaPago=prompt(`¿En qué fecha se realizó el pago de "${t.titulo}"?\n(formato YYYY-MM-DD)`,hoy);
-  if(fechaPago===null)return; // canceló
-  const fechaValida=fechaPago.match(/^\d{4}-\d{2}-\d{2}$/)?fechaPago:hoy;
-  // Guardar en historial de pagos realizados
-  const pagosRealizados=JSON.parse(localStorage.getItem('cm_pagos_realizados')||'[]');
-  pagosRealizados.push({...t,fechaPago:fechaValida,fechaMarcado:new Date().toISOString()});
-  localStorage.setItem('cm_pagos_realizados',JSON.stringify(pagosRealizados));
-  // Marcar como done
+  const div=document.createElement('div');
+  div.id='pago-date-modal';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:2000;padding:1rem';
+  div.innerHTML=`
+    <div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;padding:1.4rem;width:100%;max-width:380px;animation:mIn 0.18s ease">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin-bottom:0.3rem">✓ Registrar pago</div>
+      <div style="font-size:0.82rem;color:var(--mu);margin-bottom:1.1rem">${t.titulo}${t.monto?' — <strong style="color:var(--am)">$'+parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})+'</strong>':''}</div>
+      <div style="margin-bottom:1rem">
+        <label style="font-size:0.75rem;color:var(--mu);display:block;margin-bottom:4px">¿En qué fecha realizaste este pago?</label>
+        <input type="date" id="pago-fecha-inp" value="${hoy}" style="width:100%;background:var(--bg);border:1px solid var(--bd2);color:var(--tx);border-radius:8px;padding:0.6rem 0.8rem;font-family:'DM Sans',sans-serif;font-size:0.88rem;outline:none">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="document.getElementById('pago-date-modal').remove()" style="background:transparent;border:1px solid var(--bd);color:var(--mu);padding:0.5rem 1rem;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;cursor:pointer">Cancelar</button>
+        <button onclick="confirmarPago('${t.id}')" style="background:var(--ac);color:#fff;border:none;padding:0.5rem 1.2rem;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;cursor:pointer;font-weight:500">✓ Confirmar pago</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  // Focus en el input de fecha
+  setTimeout(()=>document.getElementById('pago-fecha-inp')?.focus(),100);
+}
+
+function confirmarPago(id){
+  const fechaInp=document.getElementById('pago-fecha-inp');
+  const fechaValida=fechaInp?.value||ts();
+  document.getElementById('pago-date-modal')?.remove();
+  const t=tasks.find(x=>x.id===id);
+  if(!t)return;
   tasks=tasks.map(x=>x.id===id?{...x,done:true,fechaPago:fechaValida,status:'done'}:x);
   saveDrive();renderAll();
-  toast(`✓ Pago registrado el ${fd(fechaValida)}`);
+  toast(`✓ Pago "${t.titulo}" registrado el ${fd(fechaValida)}`);
 }
 
 function renderDashCumples(){
@@ -1269,68 +1303,192 @@ function renderPagos(){
   else if(curPagoTab==='seis8') lista=todos.filter(t=>!t.done&&t.empresa==='seis8');
   else lista=todos.filter(t=>!t.done);
   const sorted=[...lista].sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  if(!sorted.length){document.getElementById('pg-list').innerHTML=`<div style="text-align:center;padding:2rem;color:var(--mu)">No hay pagos pendientes.</div>`;return;}
   const en7b=new Date();en7b.setDate(en7b.getDate()+7);
   const en7sb=`${en7b.getFullYear()}-${p2(en7b.getMonth()+1)}-${p2(en7b.getDate())}`;
   const vencB=sorted.filter(t=>t.fecha&&t.fecha<hoy);
   const hoyB=sorted.filter(t=>t.fecha===hoy);
   const proxB=sorted.filter(t=>t.fecha&&t.fecha>hoy&&t.fecha<=en7sb);
-  let encabezado=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.7rem;flex-wrap:wrap;gap:6px">
-    <div style="font-size:0.75rem;color:var(--mu)">${sorted.length} pago(s) pendiente(s)</div>
-    <button class="btn-g" style="font-size:0.72rem;padding:3px 10px" onclick="exportPagosPendientes()">⬇ Exportar pendientes</button>
+  const futB=sorted.filter(t=>t.fecha&&t.fecha>en7sb);
+  const sinFB=sorted.filter(t=>!t.fecha);
+  // Total pendiente
+  const totPend=sorted.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+  function seccion(titulo,color,items){
+    if(!items.length)return'';
+    const tot=items.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+    return`<div style="margin-bottom:1rem">
+      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:${color};padding:0.4rem 0;border-bottom:1px solid var(--bd);margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>${titulo} (${items.length})</span>
+        ${tot>0?`<span>$${tot.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>`:''}
+      </div>
+      ${items.map(t=>renderPagoCard(t,hoy)).join('')}
+    </div>`;
+  }
+  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.9rem;flex-wrap:wrap;gap:6px">
+    <div>
+      <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700;color:var(--am)">$${totPend.toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
+      <div style="font-size:0.72rem;color:var(--mu)">${sorted.length} pago(s) pendiente(s)</div>
+    </div>
+    <button class="btn-g" style="font-size:0.72rem;padding:4px 12px" onclick="exportPagosPendientes()">⬇ Descargar reporte</button>
   </div>`;
-  if(vencB.length) encabezado+=`<div class="av rd" style="margin-bottom:5px">⚠ <strong>${vencB.length} vencido(s):</strong> ${vencB.map(t=>t.titulo+(t.monto?' $'+parseFloat(t.monto).toLocaleString('es-MX'):'')).join(' · ')}</div>`;
-  if(hoyB.length) encabezado+=`<div class="av rd" style="margin-bottom:5px">📅 <strong>Hoy:</strong> ${hoyB.map(t=>t.titulo).join(', ')}</div>`;
-  if(proxB.length) encabezado+=`<div class="av am" style="margin-bottom:5px">🔔 <strong>Esta semana:</strong> ${proxB.map(t=>`${t.titulo} (${fd(t.fecha)})`).join(' · ')}</div>`;
-  document.getElementById('pg-list').innerHTML=sorted.length?(encabezado+sorted.map(t=>renderPagoCard(t,hoy)).join('')):`<div style="text-align:center;padding:2rem;color:var(--mu)">No hay pagos en esta categoría.</div>`;
+  html+=seccion('⚠ Vencidos','var(--rd)',vencB);
+  html+=seccion('📅 Hoy','var(--rd)',hoyB);
+  html+=seccion('🔔 Esta semana','var(--am)',proxB);
+  html+=seccion('📆 Próximos','var(--mu)',futB);
+  html+=seccion('◌ Sin fecha','var(--mu)',sinFB);
+  document.getElementById('pg-list').innerHTML=html;
 }
 
 function exportPagosRealizados(){
   exportRealizadosFiltrado();
 }
 function exportRealizadosFiltrado(){
+  if(typeof XLSX==='undefined'){toast('Cargando librería Excel...');return;}
   let realizados=tasks.filter(t=>t.cat==='pago'&&t.done);
   const desde=document.getElementById('filtro-desde')?.value;
   const hasta=document.getElementById('filtro-hasta')?.value;
   if(desde) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')>=desde);
   if(hasta) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')<=hasta);
   if(!realizados.length){toast('No hay pagos en ese rango');return;}
-  const rows=[
-    ['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Fecha de Pago','Recurrente'],
-    ...realizados
-      .sort((a,b)=>(a.fechaPago||a.fecha||'').localeCompare(b.fechaPago||b.fecha||''))
-      .map(t=>[t.titulo,t.empresa||'personal',t.proveedor||'',t.monto||'',t.fecha||'',t.fechaPago||t.fecha||'',t.recur?'Sí':'No'])
-  ];
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const sufijo=desde&&hasta?`${desde}_al_${hasta}`:desde?`desde_${desde}`:hasta?`hasta_${hasta}`:ts();
-  const a=document.createElement('a');
-  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download=`pagos_realizados_${sufijo}.csv`;
-  a.click();
-  toast(`✓ ${realizados.length} pago(s) exportados`);
+  realizados.sort((a,b)=>(a.fechaPago||a.fecha||'').localeCompare(b.fechaPago||b.fecha||''));
+  const wb=XLSX.utils.book_new();
+  const ws={};
+  let r=0;
+  // Título
+  const sufijo=desde&&hasta?`${fd(desde)} al ${fd(hasta)}`:desde?`desde ${fd(desde)}`:hasta?`hasta ${fd(hasta)}`:'Todos';
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:'PAGOS REALIZADOS — '+sufijo.toUpperCase(),t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:13,color:{rgb:'34D399'}},fill:{fgColor:{rgb:'E8FBF5'}}};
+  r++;
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:`Generado: ${new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'})}`,t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{color:{rgb:'888888'},sz:9}};
+  r+=2;
+  // Encabezados
+  ['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Fecha de Pago','Recurrente'].forEach((h,c)=>{
+    ws[XLSX.utils.encode_cell({r,c})]={v:h,t:'s'};
+    ws[XLSX.utils.encode_cell({r,c})].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:10},fill:{fgColor:{rgb:'34A375'}},alignment:{horizontal:'center'}};
+  });
+  r++;
+  // Datos agrupados por mes
+  const porMes={};
+  realizados.forEach(t=>{const mes=(t.fechaPago||t.fecha||ts()).substring(0,7);if(!porMes[mes])porMes[mes]=[];porMes[mes].push(t);});
+  Object.keys(porMes).sort().forEach(mes=>{
+    const[y,m]=mes.split('-');
+    // Encabezado de mes
+    ws[XLSX.utils.encode_cell({r,c:0})]={v:`📅 ${MN[parseInt(m)-1].toUpperCase()} ${y}`,t:'s'};
+    ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:10,color:{rgb:'1A6B4A'}},fill:{fgColor:{rgb:'D4F5E7'}}};
+    r++;
+    porMes[mes].forEach(t=>{
+      const monto=t.monto?parseFloat(t.monto):null;
+      [{v:t.titulo,c:0},{v:t.empresa||'Personal',c:1},{v:t.proveedor||'—',c:2},
+       {v:monto,c:3,n:true},{v:t.fecha||'—',c:4},{v:t.fechaPago||t.fecha||'—',c:5},{v:t.recur?'↻ Sí':'No',c:6}]
+      .forEach(({v,c,n})=>{
+        const cell={v:v!==null?v:'',t:n&&v?'n':'s'};
+        cell.s={font:{sz:9},fill:{fgColor:{rgb:'F5FFFB'}},alignment:{horizontal:n?'right':'left'}};
+        if(n&&v){cell.z='"$"#,##0.00';cell.s.font.color={rgb:'1A6B4A'};cell.s.font.bold=true;}
+        ws[XLSX.utils.encode_cell({r,c})]=cell;
+      });
+      r++;
+    });
+    // Subtotal mes
+    const totMes=porMes[mes].filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+    ws[XLSX.utils.encode_cell({r,c:0})]={v:`Subtotal ${MN[parseInt(m)-1]}`,t:'s'};
+    ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:9,italic:true},fill:{fgColor:{rgb:'D4F5E7'}}};
+    ws[XLSX.utils.encode_cell({r,c:3})]={v:totMes,t:'n',z:'"$"#,##0.00'};
+    ws[XLSX.utils.encode_cell({r,c:3})].s={font:{bold:true,sz:9,color:{rgb:'1A6B4A'}},fill:{fgColor:{rgb:'D4F5E7'}}};
+    r+=2;
+  });
+  // Gran total
+  const totGen=realizados.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:'TOTAL PAGADO',t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'34A375'}}};
+  ws[XLSX.utils.encode_cell({r,c:3})]={v:totGen,t:'n',z:'"$"#,##0.00'};
+  ws[XLSX.utils.encode_cell({r,c:3})].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'34A375'}}};
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r,c:6}});
+  ws['!cols']=[{wch:30},{wch:14},{wch:18},{wch:14},{wch:16},{wch:14},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws,'Pagos Realizados');
+  const sufijo2=desde&&hasta?`${desde}_${hasta}`:ts();
+  XLSX.writeFile(wb,`pagos_realizados_${sufijo2}.xlsx`);
+  toast(`✓ Excel descargado — ${realizados.length} pago(s)`);
 }
 
 // Exportar pagos PENDIENTES (vencidos + próxima semana)
 function exportPagosPendientes(){
+  if(typeof XLSX==='undefined'){toast('Cargando librería Excel...');return;}
   const hoy=ts();
   const en7=new Date();en7.setDate(en7.getDate()+7);
   const en7s=`${en7.getFullYear()}-${p2(en7.getMonth()+1)}-${p2(en7.getDate())}`;
   const pendientes=tasks.filter(t=>t.cat==='pago'&&!t.done)
     .sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
   if(!pendientes.length){toast('No hay pagos pendientes');return;}
-  const rows=[
-    ['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Estado','Recurrente'],
-    ...pendientes.map(t=>[
-      t.titulo, t.empresa||'personal', t.proveedor||'', t.monto||'', t.fecha||'Sin fecha',
-      !t.fecha?'Sin fecha':t.fecha<hoy?'VENCIDO':t.fecha===hoy?'Vence hoy':t.fecha<=en7s?'Esta semana':'Próximo',
-      t.recur?'Sí':'No'
-    ])
-  ];
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a=document.createElement('a');
-  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download=`pagos_pendientes_${ts()}.csv`;
-  a.click();
-  toast(`✓ ${pendientes.length} pagos pendientes exportados`);
+  const getEstado=t=>{
+    if(!t.fecha)return'Sin fecha';
+    if(t.fecha<hoy)return'⚠ VENCIDO';
+    if(t.fecha===hoy)return'📅 Vence HOY';
+    if(t.fecha<=en7s)return'🔔 Esta semana';
+    return'📆 Próximo';
+  };
+  const wb=XLSX.utils.book_new();
+  const ws={};
+  const cols=[22,35,15,20,15,18,12,10];
+  let r=0;
+  // Título principal
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:'REPORTE DE PAGOS PENDIENTES',t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:14,color:{rgb:'7C6AF7'}},fill:{fgColor:{rgb:'F0EDFF'}}};
+  r++;
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:`Generado: ${new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'})}`,t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{color:{rgb:'888888'},sz:9}};
+  r+=2;
+  // Encabezados
+  const hdrs=['Estado','Título','Empresa','Proveedor','Monto','Vence','Recurrente'];
+  hdrs.forEach((h,c)=>{
+    ws[XLSX.utils.encode_cell({r,c})]={v:h,t:'s'};
+    ws[XLSX.utils.encode_cell({r,c})].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:10},fill:{fgColor:{rgb:'7C6AF7'}},alignment:{horizontal:'center'}};
+  });
+  r++;
+  // Colores por estado
+  const colorFila=e=>e.includes('VENCIDO')?'FFE5E5':e.includes('HOY')?'FFF0E5':e.includes('semana')?'FFFBE5':'F5F5FF';
+  const colorTexto=e=>e.includes('VENCIDO')?'CC0000':e.includes('HOY')?'CC6600':e.includes('semana')?'997700':'333333';
+  pendientes.forEach(t=>{
+    const est=getEstado(t);
+    const bg=colorFila(est);
+    const tc=colorTexto(est);
+    const monto=t.monto?parseFloat(t.monto):null;
+    const rowData=[est,t.titulo,t.empresa||'Personal',t.proveedor||'—',monto,t.fecha||'Sin fecha',t.recur?'↻ Sí':'No'];
+    rowData.forEach((v,c)=>{
+      const cell={v:v!==null?v:'',t:c===4&&v!==null?'n':'s'};
+      cell.s={font:{color:{rgb:c===4?'996600':tc},sz:9,bold:c===4},fill:{fgColor:{rgb:bg}},alignment:{horizontal:c===4?'right':'left'}};
+      if(c===4&&v!==null) cell.z='"$"#,##0.00';
+      ws[XLSX.utils.encode_cell({r,c})]=cell;
+    });
+    r++;
+  });
+  r++;
+  // Totales por sección
+  const secciones=['⚠ VENCIDO','📅 Vence HOY','🔔 Esta semana','📆 Próximo','Sin fecha'];
+  const colorSec={'⚠ VENCIDO':'FFE5E5','📅 Vence HOY':'FFF0E5','🔔 Esta semana':'FFFBE5','📆 Próximo':'F5F5FF','Sin fecha':'F5F5F5'};
+  secciones.forEach(sec=>{
+    const items=pendientes.filter(t=>getEstado(t)===sec);
+    if(!items.length)return;
+    const tot=items.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+    if(!tot)return;
+    ws[XLSX.utils.encode_cell({r,c:0})]={v:`Total ${sec}`,t:'s'};
+    ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:9},fill:{fgColor:{rgb:colorSec[sec]||'F5F5FF'}}};
+    ws[XLSX.utils.encode_cell({r,c:4})]={v:tot,t:'n',z:'"$"#,##0.00'};
+    ws[XLSX.utils.encode_cell({r,c:4})].s={font:{bold:true,color:{rgb:'444400'},sz:9},fill:{fgColor:{rgb:colorSec[sec]||'F5F5FF'}}};
+    r++;
+  });
+  // Gran total
+  const totGen=pendientes.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+  ws[XLSX.utils.encode_cell({r,c:0})]={v:'TOTAL PENDIENTE',t:'s'};
+  ws[XLSX.utils.encode_cell({r,c:0})].s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'7C6AF7'}}};
+  ws[XLSX.utils.encode_cell({r,c:4})]={v:totGen,t:'n',z:'"$"#,##0.00'};
+  ws[XLSX.utils.encode_cell({r,c:4})].s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'7C6AF7'}}};
+  // Rango y anchos
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r,c:6}});
+  ws['!cols']=cols.map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws,'Pagos Pendientes');
+  XLSX.writeFile(wb,`pagos_pendientes_${ts()}.xlsx`);
+  toast(`✓ Excel descargado — ${pendientes.length} pagos`);
 }
 
 function exportCSV(){
@@ -1518,7 +1676,18 @@ async function saveTask(toGCal=false){
   closeModal();if(toGCal&&task.fecha)await exportGCal(task);else await saveDrive();renderAll();schedNotif(task);
 }
 
-function togDone(e,id){e.stopPropagation();tasks=tasks.map(t=>t.id===id?{...t,done:!t.done,status:!t.done?'done':t.status==='done'?'todo':t.status}:t);saveDrive();renderAll();}
+function togDone(e,id){
+  e.stopPropagation();
+  const t=tasks.find(x=>x.id===id);
+  if(!t)return;
+  if(t.cat==='pago'&&!t.done){
+    // Para pagos: pedir fecha de pago
+    marcarPagado(e,id);
+    return;
+  }
+  tasks=tasks.map(x=>x.id===id?{...x,done:!x.done,status:!x.done?'done':x.status==='done'?'todo':x.status}:x);
+  saveDrive();renderAll();
+}
 function delTask(e,id){
   e.stopPropagation();
   const t=tasks.find(x=>x.id===id);
@@ -1545,8 +1714,23 @@ function openDetail(id){
   if(t.monto)h+=`<div class="ds"><div class="dl">Pago</div><div style="font-size:1.2rem;font-weight:700;color:var(--am)">$${parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>${t.proveedor?`<div style="font-size:0.78rem;color:var(--mu);margin-top:1px">${t.proveedor}</div>`:''}</div>`;
   if(t.factura)h+=`<div class="ds"><div class="dl">Factura</div><div class="fchip" onclick="window.open('${t.factura}')">📎 ${t.facturaName||'Ver factura'}</div></div>`;
   if(clt)h+=`<div class="ds"><div class="dl">Checklist (${cld}/${clt})</div><div class="pbar"><div class="pfill" style="width:${clt?Math.round(cld/clt*100):0}%"></div></div><div style="margin-top:5px">${t.checklist.map((c,i)=>`<div class="cli"><div class="clck ${c.done?'ck':''}" onclick="togCLd('${id}',${i})"></div><span class="clt ${c.done?'ck':''}">${c.text}</span></div>`).join('')}</div></div>`;
-  h+=`<div class="mf"><button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open')">Cerrar</button><button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open');delTask(event,'${id}')">Eliminar</button><button class="btn-p" onclick="togDone(event,'${id}');document.getElementById('dm').classList.remove('open')">${t.done?'↩ Reabrir':'✓ Completar'}</button></div>`;
+  // Botón principal según tipo de tarea
+  const btnLabel = t.done ? '↩ Reabrir' : (t.cat==='pago' ? '✓ Marcar Pagado' : '✓ Completar');
+  const btnAction = t.done
+    ? `togDone(event,'${id}');document.getElementById('dm').classList.remove('open')`
+    : t.cat==='pago'
+      ? `closeDMandPay('${id}')`
+      : `togDone(event,'${id}');document.getElementById('dm').classList.remove('open')`;
+  h+=`<div class="mf">
+    <button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open')">Cerrar</button>
+    <button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open');delTask(event,'${id}')">Eliminar</button>
+    <button class="btn-p" onclick="${btnAction}">${btnLabel}</button>
+  </div>`;
   document.getElementById('dm-c').innerHTML=h;document.getElementById('dm').classList.add('open');
+}
+function closeDMandPay(id){
+  document.getElementById('dm').classList.remove('open');
+  setTimeout(()=>marcarPagado(null,id),150);
 }
 function togCLd(tid,idx){tasks=tasks.map(t=>{if(t.id!==tid)return t;const cl=[...t.checklist];cl[idx].done=!cl[idx].done;return{...t,checklist:cl};});saveDrive();openDetail(tid);renderAll();}
 
