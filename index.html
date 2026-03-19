@@ -348,19 +348,28 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   <div class="page" id="page-pagos">
     <div class="sh">
       <div class="st">Dashboard de pagos</div>
-      <div style="display:flex;gap:5px">
-        <button class="btn-g" onclick="exportCSV()">⬇ CSV</button>
-        <button class="btn-p" onclick="openModal(null,'pago')">+ Pago</button>
-      </div>
+      <button class="btn-p" onclick="openModal(null,'pago')">+ Pago</button>
     </div>
     <div id="av-pagos"></div>
     <div class="pg" id="pg-stats"></div>
     <!-- Tabs -->
     <div class="filters" style="margin-bottom:0.8rem">
-      <button class="fb active" id="ptab-todos" onclick="setPagoTab('todos',this)">Todos</button>
+      <button class="fb active" id="ptab-todos" onclick="setPagoTab('todos',this)">Pendientes</button>
       <button class="fb" id="ptab-personal" onclick="setPagoTab('personal',this)">Personal</button>
       <button class="fb" id="ptab-seis8" onclick="setPagoTab('seis8',this)">Seis8</button>
       <button class="fb" id="ptab-realizados" onclick="setPagoTab('realizados',this)">✅ Realizados</button>
+    </div>
+    <!-- Filtro fecha para realizados -->
+    <div id="filtro-fecha-pagos" style="display:none;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:0.7rem;margin-bottom:0.8rem">
+      <div style="font-size:0.75rem;color:var(--mu);margin-bottom:0.5rem">Filtrar realizados por rango de fechas:</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="date" id="filtro-desde" class="fi" style="width:auto;padding:0.3rem 0.6rem;font-size:0.78rem">
+        <span style="color:var(--mu);font-size:0.78rem">hasta</span>
+        <input type="date" id="filtro-hasta" class="fi" style="width:auto;padding:0.3rem 0.6rem;font-size:0.78rem">
+        <button class="btn-p" style="padding:0.3rem 0.8rem;font-size:0.78rem" onclick="renderPagos()">Filtrar</button>
+        <button class="btn-g" style="padding:0.3rem 0.8rem;font-size:0.78rem" onclick="exportRealizadosFiltrado()">⬇ Descargar</button>
+        <button class="btn-g" style="padding:0.3rem 0.8rem;font-size:0.78rem" onclick="limpiarFiltroFechas()">✕ Limpiar</button>
+      </div>
     </div>
     <div id="pg-list"></div>
   </div>
@@ -689,10 +698,15 @@ async function findOrCreateSheet(){
   // Buscar o crear carpeta ClauMind en Drive
   let folderId=localStorage.getItem('cm_folder_id');
   if(!folderId){
+    // Buscar carpeta "ClauMind" en Drive (donde se guarda todo seguro)
     const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='ClauMind' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
     const fd2=await fq.json();
     if(fd2.files?.length){folderId=fd2.files[0].id;}
-    else{const fc=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:'ClauMind',mimeType:'application/vnd.google-apps.folder'})})).json();folderId=fc.id;}
+    else{
+      // Crear carpeta ClauMind con descripción
+      const fc=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:'ClauMind',mimeType:'application/vnd.google-apps.folder',description:'Datos de la app ClauMind — no borrar'})})).json();
+      folderId=fc.id;
+    }
     localStorage.setItem('cm_folder_id',folderId);
   }
   const create=await fetch(SHEETS_API,{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({
@@ -1011,27 +1025,31 @@ function renderDashPagos(){
   const hoy=ts();
   const en7=new Date();en7.setDate(en7.getDate()+7);
   const en7s=`${en7.getFullYear()}-${p2(en7.getMonth()+1)}-${p2(en7.getDate())}`;
-  // Solo pagos NO realizados con fecha en los próximos 7 días o vencidos
-  const pagos=tasks.filter(t=>t.cat==='pago'&&!t.done&&t.fecha&&t.fecha<=en7s);
-  const venc=pagos.filter(t=>t.fecha<hoy);
-  const prox=pagos.filter(t=>t.fecha>=hoy);
+  // TODOS los pagos pendientes (sin importar fecha), ordenados por fecha
+  const pagos=tasks.filter(t=>t.cat==='pago'&&!t.done)
+    .sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  const venc=pagos.filter(t=>t.fecha&&t.fecha<hoy);
+  const hoyP=pagos.filter(t=>t.fecha===hoy);
+  const prox=pagos.filter(t=>t.fecha&&t.fecha>hoy&&t.fecha<=en7s);
+  const sinF=pagos.filter(t=>!t.fecha);
   const el=document.getElementById('sec-pagos-dash');
   if(!pagos.length){el.innerHTML='';return;}
-  let h=`<div class="dash-title" style="display:flex;align-items:center;justify-content:space-between">
+  let h=`<div class="dash-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
     <span>💳 Pagos pendientes <span class="cnt">${pagos.length}</span></span>
-    <button onclick="showPage('pagos',null)" style="font-size:0.65rem;color:var(--ac2);background:none;border:none;cursor:pointer">Ver todos →</button>
+    <button onclick="showPage('pagos',document.querySelector('aside .ni:nth-child(5)'))" style="font-size:0.65rem;color:var(--ac2);background:none;border:none;cursor:pointer;font-family:inherit">Ver todos →</button>
   </div>`;
-  if(venc.length)h+=`<div class="av rd" style="margin-bottom:6px">⚠ Vencidos: ${venc.map(t=>t.titulo+(t.monto?' $'+parseFloat(t.monto).toLocaleString('es-MX'):'')).join(' · ')}</div>`;
-  if(prox.length)h+=`<div class="av am" style="margin-bottom:6px">🔔 Próximos 7 días: ${prox.map(t=>t.titulo+' ('+fd(t.fecha)+')').join(' · ')}</div>`;
-  // Tarjetas con botón "Marcar como pagado"
+  if(venc.length) h+=`<div class="av rd" style="margin-bottom:5px">⚠ <strong>${venc.length} vencido(s):</strong> ${venc.map(t=>`${t.titulo}${t.monto?' — $'+parseFloat(t.monto).toLocaleString('es-MX'):''} (${fd(t.fecha)})`).join(' · ')}</div>`;
+  if(hoyP.length) h+=`<div class="av" style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.25);color:var(--rd);margin-bottom:5px">📅 <strong>Vence hoy:</strong> ${hoyP.map(t=>t.titulo).join(', ')}</div>`;
+  if(prox.length) h+=`<div class="av am" style="margin-bottom:5px">🔔 <strong>Esta semana:</strong> ${prox.map(t=>`${t.titulo} (${fd(t.fecha)})`).join(' · ')}</div>`;
+  // Tarjetas — todos los pendientes
   h+=`<div class="tlist">${pagos.map(t=>`
-    <div class="tc cat-pago pmedia" onclick="openDetail('${t.id}')">
+    <div class="tc cat-pago ${t.fecha&&t.fecha<hoy?'palta':'pmedia'}" onclick="openDetail('${t.id}')">
       <div class="tbd">
         <div class="tti">💳 ${t.titulo}</div>
         <div class="tmeta">
           ${t.empresa?`<span class="tcat" style="background:rgba(251,191,36,0.15);color:var(--am)">${t.empresa}</span>`:''}
           ${t.monto?`<span style="font-size:0.75rem;font-weight:600;color:var(--am)">$${parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})}</span>`:''}
-          ${t.fecha?`<span class="tdt ${t.fecha<hoy?'ov':''}">${t.fecha<hoy?'⚠ Vencido':fd(t.fecha)}</span>`:''}
+          ${t.fecha?`<span class="tdt ${t.fecha<hoy?'ov':t.fecha===hoy?'tod':''}">${t.fecha<hoy?'⚠ Vencido':t.fecha===hoy?'📅 Hoy':fd(t.fecha)}</span>`:'<span class="tdt">Sin fecha</span>'}
           ${t.recur?'<span class="recurb">↻</span>':''}
         </div>
       </div>
@@ -1157,6 +1175,15 @@ function setPagoTab(tab,el){
   curPagoTab=tab;
   document.querySelectorAll('[id^="ptab-"]').forEach(b=>b.classList.remove('active'));
   el?.classList.add('active');
+  // Mostrar filtro de fechas solo en tab realizados
+  const filtroEl=document.getElementById('filtro-fecha-pagos');
+  if(filtroEl) filtroEl.style.display=tab==='realizados'?'block':'none';
+  renderPagos();
+}
+function limpiarFiltroFechas(){
+  const d=document.getElementById('filtro-desde');
+  const h=document.getElementById('filtro-hasta');
+  if(d)d.value=''; if(h)h.value='';
   renderPagos();
 }
 
@@ -1202,14 +1229,17 @@ function renderPagos(){
   // Filtrar según tab
   let lista;
   if(curPagoTab==='realizados'){
-    // Mostrar historial de pagos realizados con fechas reales
-    const hist=JSON.parse(localStorage.getItem('cm_pagos_realizados')||'[]');
-    const realizados=todos.filter(t=>t.done);
-    if(!realizados.length&&!hist.length){
-      document.getElementById('pg-list').innerHTML=`<div style="text-align:center;padding:2rem;color:var(--mu)">No hay pagos realizados aún.</div>`;
+    let realizados=todos.filter(t=>t.done);
+    // Aplicar filtro de fechas si está activo
+    const desde=document.getElementById('filtro-desde')?.value;
+    const hasta=document.getElementById('filtro-hasta')?.value;
+    if(desde) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')>=desde);
+    if(hasta) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')<=hasta);
+    if(!realizados.length){
+      document.getElementById('pg-list').innerHTML=`<div style="text-align:center;padding:2rem;color:var(--mu)">${desde||hasta?'Sin pagos en ese rango de fechas.':'No hay pagos realizados aún.'}</div>`;
       return;
     }
-    // Agrupar por mes
+    // Agrupar por mes según fecha de pago real
     const porMes={};
     realizados.forEach(t=>{
       const mes=(t.fechaPago||t.fecha||ts()).substring(0,7);
@@ -1217,44 +1247,96 @@ function renderPagos(){
       porMes[mes].push(t);
     });
     let h='';
+    // Resumen total del período
+    const totalPeriodo=realizados.filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
+    h+=`<div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:0.7rem 0.9rem;margin-bottom:0.8rem;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:0.8rem;color:var(--mu)">${realizados.length} pago(s) realizados${desde||hasta?' en el período':''}</span>
+      <span style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700;color:var(--gn)">$${totalPeriodo.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>
+    </div>`;
     Object.keys(porMes).sort().reverse().forEach(mes=>{
       const[y,m]=mes.split('-');
       const tot=porMes[mes].filter(t=>t.monto).reduce((s,t)=>s+parseFloat(t.monto||0),0);
-      h+=`<div style="font-size:0.72rem;font-weight:600;color:var(--mu);text-transform:uppercase;padding:0.5rem 0 0.3rem;border-bottom:1px solid var(--bd);margin-bottom:6px;display:flex;justify-content:space-between"><span>${MN[parseInt(m)-1]} ${y}</span><span style="color:var(--gn)">$${tot.toLocaleString('es-MX',{minimumFractionDigits:2})}</span></div>`;
+      h+=`<div style="font-size:0.72rem;font-weight:600;color:var(--mu);text-transform:uppercase;padding:0.5rem 0 0.3rem;border-bottom:1px solid var(--bd);margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>📅 ${MN[parseInt(m)-1]} ${y}</span>
+        <span style="color:var(--gn)">$${tot.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>
+      </div>`;
       h+=porMes[mes].map(t=>renderPagoCard(t,hoy)).join('');
     });
-    // Botón exportar realizados
-    h=`<div style="display:flex;justify-content:flex-end;margin-bottom:0.7rem"><button class="btn-g" onclick="exportPagosRealizados()">⬇ Exportar realizados</button></div>`+h;
     document.getElementById('pg-list').innerHTML=h;
     return;
   }
   if(curPagoTab==='personal') lista=todos.filter(t=>!t.done&&(t.empresa==='personal'||!t.empresa));
   else if(curPagoTab==='seis8') lista=todos.filter(t=>!t.done&&t.empresa==='seis8');
-  else lista=todos.filter(t=>!t.done); // todos pendientes
+  else lista=todos.filter(t=>!t.done);
   const sorted=[...lista].sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
-  document.getElementById('pg-list').innerHTML=sorted.length?sorted.map(t=>renderPagoCard(t,hoy)).join(''):`<div style="text-align:center;padding:2rem;color:var(--mu)">No hay pagos en esta categoría.</div>`;
+  const en7b=new Date();en7b.setDate(en7b.getDate()+7);
+  const en7sb=`${en7b.getFullYear()}-${p2(en7b.getMonth()+1)}-${p2(en7b.getDate())}`;
+  const vencB=sorted.filter(t=>t.fecha&&t.fecha<hoy);
+  const hoyB=sorted.filter(t=>t.fecha===hoy);
+  const proxB=sorted.filter(t=>t.fecha&&t.fecha>hoy&&t.fecha<=en7sb);
+  let encabezado=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.7rem;flex-wrap:wrap;gap:6px">
+    <div style="font-size:0.75rem;color:var(--mu)">${sorted.length} pago(s) pendiente(s)</div>
+    <button class="btn-g" style="font-size:0.72rem;padding:3px 10px" onclick="exportPagosPendientes()">⬇ Exportar pendientes</button>
+  </div>`;
+  if(vencB.length) encabezado+=`<div class="av rd" style="margin-bottom:5px">⚠ <strong>${vencB.length} vencido(s):</strong> ${vencB.map(t=>t.titulo+(t.monto?' $'+parseFloat(t.monto).toLocaleString('es-MX'):'')).join(' · ')}</div>`;
+  if(hoyB.length) encabezado+=`<div class="av rd" style="margin-bottom:5px">📅 <strong>Hoy:</strong> ${hoyB.map(t=>t.titulo).join(', ')}</div>`;
+  if(proxB.length) encabezado+=`<div class="av am" style="margin-bottom:5px">🔔 <strong>Esta semana:</strong> ${proxB.map(t=>`${t.titulo} (${fd(t.fecha)})`).join(' · ')}</div>`;
+  document.getElementById('pg-list').innerHTML=sorted.length?(encabezado+sorted.map(t=>renderPagoCard(t,hoy)).join('')):`<div style="text-align:center;padding:2rem;color:var(--mu)">No hay pagos en esta categoría.</div>`;
 }
 
 function exportPagosRealizados(){
-  const realizados=tasks.filter(t=>t.cat==='pago'&&t.done);
-  if(!realizados.length){toast('No hay pagos realizados');return;}
-  const rows=[['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Fecha Pago','Recurrente'],
-    ...realizados.map(t=>[t.titulo,t.empresa||'personal',t.proveedor||'',t.monto||'',t.fecha||'',t.fechaPago||'',t.recur?'Sí':'No'])];
+  exportRealizadosFiltrado();
+}
+function exportRealizadosFiltrado(){
+  let realizados=tasks.filter(t=>t.cat==='pago'&&t.done);
+  const desde=document.getElementById('filtro-desde')?.value;
+  const hasta=document.getElementById('filtro-hasta')?.value;
+  if(desde) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')>=desde);
+  if(hasta) realizados=realizados.filter(t=>(t.fechaPago||t.fecha||'')<=hasta);
+  if(!realizados.length){toast('No hay pagos en ese rango');return;}
+  const rows=[
+    ['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Fecha de Pago','Recurrente'],
+    ...realizados
+      .sort((a,b)=>(a.fechaPago||a.fecha||'').localeCompare(b.fechaPago||b.fecha||''))
+      .map(t=>[t.titulo,t.empresa||'personal',t.proveedor||'',t.monto||'',t.fecha||'',t.fechaPago||t.fecha||'',t.recur?'Sí':'No'])
+  ];
+  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const sufijo=desde&&hasta?`${desde}_al_${hasta}`:desde?`desde_${desde}`:hasta?`hasta_${hasta}`:ts();
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+  a.download=`pagos_realizados_${sufijo}.csv`;
+  a.click();
+  toast(`✓ ${realizados.length} pago(s) exportados`);
+}
+
+// Exportar pagos PENDIENTES (vencidos + próxima semana)
+function exportPagosPendientes(){
+  const hoy=ts();
+  const en7=new Date();en7.setDate(en7.getDate()+7);
+  const en7s=`${en7.getFullYear()}-${p2(en7.getMonth()+1)}-${p2(en7.getDate())}`;
+  const pendientes=tasks.filter(t=>t.cat==='pago'&&!t.done)
+    .sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  if(!pendientes.length){toast('No hay pagos pendientes');return;}
+  const rows=[
+    ['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Estado','Recurrente'],
+    ...pendientes.map(t=>[
+      t.titulo, t.empresa||'personal', t.proveedor||'', t.monto||'', t.fecha||'Sin fecha',
+      !t.fecha?'Sin fecha':t.fecha<hoy?'VENCIDO':t.fecha===hoy?'Vence hoy':t.fecha<=en7s?'Esta semana':'Próximo',
+      t.recur?'Sí':'No'
+    ])
+  ];
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download=`pagos_realizados_${ts()}.csv`;a.click();
-  toast('✓ CSV de realizados descargado');
+  a.download=`pagos_pendientes_${ts()}.csv`;
+  a.click();
+  toast(`✓ ${pendientes.length} pagos pendientes exportados`);
 }
 
 function exportCSV(){
-  const pagos=tasks.filter(t=>t.cat==='pago');
-  if(!pagos.length){toast('No hay pagos');return;}
-  const now=new Date(),ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
-  const wss=`${ws.getFullYear()}-${p2(ws.getMonth()+1)}-${p2(ws.getDate())}`;
-  const rows=[['Título','Proveedor','Monto','Fecha','Estado','Recurrente'],...pagos.map(t=>[t.titulo,t.proveedor||'',t.monto||'',t.fecha||'',t.done?'Pagado':'Pendiente',t.recur?'Sí':'No'])];
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);a.download=`pagos_${wss}.csv`;a.click();toast('✓ CSV descargado');
+  // Exportar según el tab activo
+  if(curPagoTab==='realizados') exportRealizadosFiltrado();
+  else exportPagosPendientes();
 }
 
 // ─── COUNTS & NAV ─────────────────────────────────────────────
