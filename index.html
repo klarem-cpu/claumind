@@ -563,15 +563,23 @@ function initAuth(){
     showInlineAI();
     setTimeout(autoImport,1500);
   }});
-  const sv=localStorage.getItem(SK+'_u');
+  // Buscar sesión guardada con cualquier clave anterior
+  const sv=localStorage.getItem(SK+'_u')||localStorage.getItem('claumind_v3_u')||localStorage.getItem('cm_u');
   if(sv){
-    user=JSON.parse(sv);
-    tasks=JSON.parse(localStorage.getItem(SK)||'[]');
-    projects=JSON.parse(localStorage.getItem(SK+'_p')||'[]');
+    try{user=JSON.parse(sv);}catch(e){}
+    // Cargar datos: intentar nueva clave primero, luego claves antiguas
+    const tNew=localStorage.getItem('cm_tasks');
+    const tOld=localStorage.getItem('claumind_v3')||localStorage.getItem(SK);
+    const pNew=localStorage.getItem('cm_projects');
+    const pOld=localStorage.getItem('claumind_v3_p')||localStorage.getItem(SK+'_p');
+    if(tNew){tasks=JSON.parse(tNew);}
+    else if(tOld){tasks=JSON.parse(tOld); localStorage.setItem('cm_tasks',tOld);}
+    if(pNew){projects=JSON.parse(pNew);}
+    else if(pOld){projects=JSON.parse(pOld); localStorage.setItem('cm_projects',pOld);}
     updateUI();
     document.getElementById('ls').classList.add('hidden');
     renderAll();showInlineAI();
-    // Intento silencioso de refrescar token
+    // Refrescar token en background
     setTimeout(()=>{try{tclient?.requestAccessToken({prompt:''});}catch(e){}},500);
   }
 }
@@ -601,10 +609,15 @@ function saveLocal(){
   localStorage.setItem('cm_updated', new Date().toISOString());
 }
 function loadLocal(){
-  const t=localStorage.getItem('cm_tasks');
-  const p=localStorage.getItem('cm_projects');
-  if(t)tasks=JSON.parse(t);
-  if(p)projects=JSON.parse(p);
+  // Nueva clave primero, luego claves anteriores como fallback
+  const t=localStorage.getItem('cm_tasks')
+    ||localStorage.getItem('claumind_v3')
+    ||localStorage.getItem('claumind_data');
+  const p=localStorage.getItem('cm_projects')
+    ||localStorage.getItem('claumind_v3_p')
+    ||localStorage.getItem('claumind_data_p');
+  if(t){tasks=JSON.parse(t); localStorage.setItem('cm_tasks',t);}
+  if(p){projects=JSON.parse(p); localStorage.setItem('cm_projects',p);}
 }
 
 // ── GOOGLE SHEETS ─────────────────────────────────────────────
@@ -693,27 +706,65 @@ async function loadFromSheets(){
 }
 
 async function loadDrive(){
-  // Siempre cargar local primero para respuesta inmediata
+  // 1. Cargar local inmediatamente
   loadLocal();
-  if(!gToken){if(!tasks.length)addDemo();return;}
+  if(!gToken){if(!tasks.length)addDemo();renderAll();return;}
   setSB('sy');
   try{
+    // 2. Intentar Google Sheets
     await findOrCreateSheet();
     const loaded=await loadFromSheets();
     if(loaded){
-      saveLocal();setSB('ok');
+      saveLocal();setSB('ok');renderAll();
+      toast('✓ Datos cargados desde Google Sheets');
+      return;
+    }
+    // 3. Sheets vacío o nuevo — si hay datos locales, subirlos
+    if(tasks.length){
+      await writeSheetHeaders();
+      await saveToSheets();
+      setSB('ok');
+      toast('✓ Datos subidos a Google Sheets');
     } else {
-      // Sheets vacío — subir lo que hay en local
-      if(!tasks.length)addDemo();
+      addDemo();
       await writeSheetHeaders();
       await saveToSheets();
       setSB('ok');
     }
+    renderAll();
   }catch(e){
     console.log('loadDrive error',e);
+    // Sheets falló (posiblemente API no habilitada) — usar JSON Drive como fallback
+    toast('⚠ Sheets no disponible, usando Drive JSON...');
+    await loadDriveJSON();
+    renderAll();
+  }
+}
+
+// Fallback: JSON en Drive (versiones anteriores)
+async function loadDriveJSON(){
+  try{
+    const names=['ClauMind_datos.json','claumind_tasks_v3.json','claumind_v4.json'];
+    for(const name of names){
+      const s=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${name}' and trashed=false&orderBy=modifiedTime desc`,{headers:{Authorization:'Bearer '+gToken}});
+      if(!s.ok)continue;
+      const sd=await s.json();
+      if(sd.files?.length){
+        const fr=await fetch(`https://www.googleapis.com/drive/v3/files/${sd.files[0].id}?alt=media`,{headers:{Authorization:'Bearer '+gToken}});
+        if(fr.ok){
+          const c=await fr.json();
+          if((c.tasks||[]).length){
+            tasks=c.tasks;projects=c.projects||[];
+            saveLocal();setSB('ok');
+            toast('✓ Datos recuperados de Drive');
+            return;
+          }
+        }
+      }
+    }
     if(!tasks.length)addDemo();
     setSB('er');
-  }
+  }catch(e){if(!tasks.length)addDemo();setSB('er');}
 }
 
 // saveDrive = guardar en localStorage + Google Sheets
