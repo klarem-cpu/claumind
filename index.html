@@ -1284,14 +1284,20 @@ function filterByCat(c){
   goToTodas();
   document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
   document.querySelector('.fb')?.classList.add('active');
-  renderTodas();
+  // Pequeño delay para asegurar que ningún renderAll en curso lo pise
+  setTimeout(()=>{
+    // Verificar que curCat sigue siendo el correcto
+    if(curCat===c) renderTodas();
+  },50);
 }
 function filterByProj(id){
   curProj=id; curCat=null; curFilter='todas';
   goToTodas();
   document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
   document.querySelector('.fb')?.classList.add('active');
-  renderTodas();
+  setTimeout(()=>{
+    if(curProj===id) renderTodas();
+  },50);
 }
 
 // ─── STATS ────────────────────────────────────────────────────
@@ -1590,7 +1596,13 @@ function showPage(name,el,type){
 }
 function setFilter(f,el){curFilter=f;document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));el.classList.add('active');renderTodas();}
 
-function renderAll(){renderInicio();renderTodas();renderCounts();}
+function renderAll(){
+  renderInicio();
+  renderCounts();
+  // Solo renderTodas si estamos en esa página Y sin filtro de categoría/proyecto
+  const enTodas=document.getElementById('page-todas')?.classList.contains('active');
+  if(enTodas) renderTodas();
+}
 
 // ─── DEMO ─────────────────────────────────────────────────────
 function addDemo(){
