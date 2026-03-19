@@ -349,7 +349,11 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   <div class="page" id="page-pagos">
     <div class="sh">
       <div class="st">Dashboard de pagos</div>
-      <button class="btn-p" onclick="openModal(null,'pago')">+ Pago</button>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="btn-g" onclick="exportPagosPendientes()" title="Descargar reporte de pendientes">📊 Pendientes</button>
+        <button class="btn-g" onclick="setPagoTab('realizados',document.getElementById('ptab-realizados'));setTimeout(exportRealizadosFiltrado,300)" title="Descargar realizados">📊 Realizados</button>
+        <button class="btn-p" onclick="openModal(null,'pago')">+ Pago</button>
+      </div>
     </div>
     <div id="av-pagos"></div>
     <div class="pg" id="pg-stats"></div>
@@ -629,8 +633,8 @@ function initAuth(){
     const tOld=localStorage.getItem('claumind_v3')||localStorage.getItem(SK);
     const pNew=localStorage.getItem('cm_projects');
     const pOld=localStorage.getItem('claumind_v3_p')||localStorage.getItem(SK+'_p');
-    if(tNew){tasks=JSON.parse(tNew);}
-    else if(tOld){tasks=JSON.parse(tOld); localStorage.setItem('cm_tasks',tOld);}
+    if(tNew){tasks=normalizeTasks(JSON.parse(tNew));}
+    else if(tOld){tasks=normalizeTasks(JSON.parse(tOld)); localStorage.setItem('cm_tasks',JSON.stringify(tasks));}
     if(pNew){projects=JSON.parse(pNew);}
     else if(pOld){projects=JSON.parse(pOld); localStorage.setItem('cm_projects',pOld);}
     updateUI();
@@ -665,15 +669,18 @@ function saveLocal(){
   localStorage.setItem('cm_projects', JSON.stringify(projects));
   localStorage.setItem('cm_updated', new Date().toISOString());
 }
+function normalizeTasks(arr){
+  // Asegurar que done siempre sea boolean (no string "SI"/"NO" ni "true")
+  return (arr||[]).map(t=>({...t, done: t.done===true||t.done==='SI'||t.done==='true'}));
+}
 function loadLocal(){
-  // Nueva clave primero, luego claves anteriores como fallback
   const t=localStorage.getItem('cm_tasks')
     ||localStorage.getItem('claumind_v3')
     ||localStorage.getItem('claumind_data');
   const p=localStorage.getItem('cm_projects')
     ||localStorage.getItem('claumind_v3_p')
     ||localStorage.getItem('claumind_data_p');
-  if(t){tasks=JSON.parse(t); localStorage.setItem('cm_tasks',t);}
+  if(t){tasks=normalizeTasks(JSON.parse(t)); localStorage.setItem('cm_tasks',JSON.stringify(tasks));}
   if(p){projects=JSON.parse(p); localStorage.setItem('cm_projects',p);}
 }
 
@@ -699,16 +706,24 @@ async function findOrCreateSheet(){
   // Buscar o crear carpeta ClauMind en Drive
   let folderId=localStorage.getItem('cm_folder_id');
   if(!folderId){
-    // Buscar carpeta MISAPPS (donde está el index.html de la app)
-    // Si no existe, buscar o crear carpeta ClauMind como alternativa
-    const folderNames=['MISAPPS','ClauMind'];
-    for(const fname of folderNames){
-      const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
-      const fd2=await fq.json();
-      if(fd2.files?.length){folderId=fd2.files[0].id;break;}
+    // Buscar carpeta MISAPPS por nombre
+    // También probar con ID directo si fue guardado antes
+    const savedFolderId=localStorage.getItem('cm_folder_id');
+    if(savedFolderId){
+      // Verificar que todavía existe
+      const chk=await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name`,{headers:{Authorization:'Bearer '+gToken}});
+      if(chk.ok){folderId=savedFolderId;}
+      else{localStorage.removeItem('cm_folder_id');}
     }
     if(!folderId){
-      // Crear carpeta ClauMind si no existe ninguna de las anteriores
+      // Buscar por nombre MISAPPS primero, luego ClauMind
+      for(const fname of ['MISAPPS','ClauMind']){
+        const fq=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
+        const fd2=await fq.json();
+        if(fd2.files?.length){folderId=fd2.files[0].id;break;}
+      }
+    }
+    if(!folderId){
       const fc=await(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({name:'ClauMind',mimeType:'application/vnd.google-apps.folder',description:'Datos de la app ClauMind — no borrar'})})).json();
       folderId=fc.id;
     }
@@ -773,10 +788,11 @@ async function loadFromSheets(){
       id:r[0]||Date.now().toString(), titulo:r[1]||'', cat:r[2]||'trabajo', prio:r[3]||'media',
       fecha:r[4]||'', hora:r[5]||'', status:r[6]||'todo', projId:r[7]||'', recur:r[8]||'',
       monto:r[9]||'', proveedor:r[10]||'', empresa:r[11]||'', zoom:r[12]||'', desc:r[13]||'',
-      done:r[14]==='SI', fechaPago:r[15]||'',
+      done:r[14]==='SI'||r[14]===true, fechaPago:r[15]||'',
       creado:r[16]?new Date(r[16]).getTime():Date.now(),
       gcalId:r[17]||null, gcalEventId:null, checklist:[], factura:null, facturaName:null
     }));
+    tasks=normalizeTasks(tasks); // asegurar booleans
     // Load projects
     const rp=await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1000`,{headers:{Authorization:'Bearer '+gToken}});
     if(rp.ok){
@@ -837,7 +853,7 @@ async function loadDriveJSON(){
         if(fr.ok){
           const c=await fr.json();
           if((c.tasks||[]).length){
-            tasks=c.tasks;projects=c.projects||[];
+            tasks=normalizeTasks(c.tasks);projects=c.projects||[];
             saveLocal();setSB('ok');
             toast('✓ Datos recuperados de Drive');
             return;
@@ -1043,7 +1059,10 @@ function renderDashPagos(){
   if(!pagos.length){el.innerHTML='';return;}
   let h=`<div class="dash-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
     <span>💳 Pagos pendientes <span class="cnt">${pagos.length}</span></span>
-    <button onclick="showPage('pagos',document.querySelector('aside .ni:nth-child(5)'))" style="font-size:0.65rem;color:var(--ac2);background:none;border:none;cursor:pointer;font-family:inherit">Ver todos →</button>
+    <div style="display:flex;gap:5px;align-items:center">
+      <button onclick="exportPagosPendientes()" style="font-size:0.63rem;color:var(--gn);background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.25);border-radius:6px;padding:2px 7px;cursor:pointer;font-family:inherit">📊 Excel</button>
+      <button onclick="showPage('pagos',document.querySelector('aside .ni:nth-child(5)'))" style="font-size:0.63rem;color:var(--ac2);background:none;border:none;cursor:pointer;font-family:inherit">Ver todos →</button>
+    </div>
   </div>`;
   if(venc.length) h+=`<div class="av rd" style="margin-bottom:5px">⚠ <strong>${venc.length} vencido(s):</strong> ${venc.map(t=>`${t.titulo}${t.monto?' — $'+parseFloat(t.monto).toLocaleString('es-MX'):''} (${fd(t.fecha)})`).join(' · ')}</div>`;
   if(hoyP.length) h+=`<div class="av" style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.25);color:var(--rd);margin-bottom:5px">📅 <strong>Vence hoy:</strong> ${hoyP.map(t=>t.titulo).join(', ')}</div>`;
