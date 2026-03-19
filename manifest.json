@@ -1,0 +1,35 @@
+{
+  "name": "ClauMind — Tu asistente de tareas",
+  "short_name": "ClauMind",
+  "description": "Gestiona tus tareas con Google Calendar integrado e IA",
+  "start_url": "/claumind/",
+  "scope": "/claumind/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e0e12",
+  "theme_color": "#7c6af7",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%237c6af7'/><text x='50%' y='55%' font-size='110' text-anchor='middle' dominant-baseline='middle' font-family='serif' fill='white'>C</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%237c6af7'/><text x='50%' y='55%' font-size='300' text-anchor='middle' dominant-baseline='middle' font-family='serif' fill='white'>C</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Nueva tarea",
+      "short_name": "Nueva tarea",
+      "description": "Crear una tarea rápida",
+      "url": "/claumind/?action=new"
+    }
+  ]
+}

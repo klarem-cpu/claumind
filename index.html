@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta name="theme-color" content="#7c6af7">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ClauMind">
+<link rel="manifest" href="manifest.json">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClauMind — Tu asistente de tareas</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -896,6 +901,16 @@ function addDemoTasks() {
 // INIT
 window.addEventListener('load', initGoogleAuth);
 document.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openModal();} if(e.key==='Escape'){closeModal();closeAIModal();} });
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    console.log("SW registrado");
+    reg.addEventListener("updatefound", () => {
+      showToast("Nueva versión disponible — recarga la app");
+    });
+  });
+}
 </script>
 </body>
 </html>
