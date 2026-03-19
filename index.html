@@ -1268,18 +1268,29 @@ function renderCounts(){
   pn.innerHTML=projects.map(p=>{const pt=tasks.filter(t=>t.projId===p.id),dn=pt.filter(t=>t.done||t.status==='done').length,pct=pt.length?Math.round(dn/pt.length*100):0;return`<button class="ni" onclick="filterByProj('${p.id}')"><span class="ndot" style="background:${p.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${p.name}</span><span class="nprog">${pct}%</span></button>`;}).join('');
 }
 
-function filterByCat(c){
-  curCat=c;curProj=null;curFilter='todas';
-  // Activar sidebar item Todas
-  document.querySelectorAll('aside .ni').forEach(b=>b.classList.remove('active'));
+function goToTodas(){
+  // Navegar a página Todas sin tocar curCat/curProj
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-todas').classList.add('active');
   document.querySelectorAll('.mnb').forEach(b=>b.classList.remove('active'));
-  showPage('todas',null);
+  const mnbTodas=document.querySelectorAll('.mnb')[1];
+  if(mnbTodas)mnbTodas.classList.add('active');
+  document.querySelectorAll('aside .ni').forEach(b=>b.classList.remove('active'));
+  const niTodas=document.querySelectorAll('aside .ni')[1];
+  if(niTodas)niTodas.classList.add('active');
+}
+function filterByCat(c){
+  curCat=c; curProj=null; curFilter='todas';
+  goToTodas();
+  document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.fb')?.classList.add('active');
   renderTodas();
 }
 function filterByProj(id){
-  curProj=id;curCat=null;curFilter='todas';
-  document.querySelectorAll('aside .ni').forEach(b=>b.classList.remove('active'));
-  showPage('todas',null);
+  curProj=id; curCat=null; curFilter='todas';
+  goToTodas();
+  document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.fb')?.classList.add('active');
   renderTodas();
 }
 
@@ -1567,7 +1578,8 @@ function showPage(name,el,type){
   document.getElementById('page-'+name)?.classList.add('active');
   if(type==='m'){document.querySelectorAll('.mnb').forEach(b=>b.classList.remove('active'));if(el)el.classList.add('active');}
   else if(el){document.querySelectorAll('aside .ni').forEach(b=>b.classList.remove('active'));el.classList.add('active');}
-  curCat=null;curProj=null;
+  // Reset filtros siempre que se navega directamente
+  curCat=null; curProj=null;
   if(name==='todas'){curFilter='todas';document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));document.querySelector('.fb')?.classList.add('active');renderTodas();}
   if(name==='gcal')renderGCalList();
   if(name==='kanban')renderKanban();
