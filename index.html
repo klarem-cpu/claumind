@@ -55,7 +55,7 @@ aside{width:210px;min-width:210px;background:var(--sf);border-right:1px solid va
 .ni.active .nc{background:var(--ac);color:#fff}
 .nprog{margin-left:auto;font-size:0.63rem;color:var(--mu)}
 
-main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain}
+main{flex:1;overflow-y:auto;overflow-x:hidden;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .page{display:none}.page.active{display:block}
 
 /* DASHBOARD HOY — nueva estructura */
@@ -226,6 +226,10 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   .mnb{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:0.28rem;border:none;background:none;color:var(--mu);font-family:'DM Sans',sans-serif;font-size:0.58rem;cursor:pointer}
   .mnb.active{color:var(--ac2)}
   .mnbi{font-size:1rem}
+  .qa-btn{background:var(--sf2);border:1px solid var(--bd);border-radius:12px;padding:0.9rem 0.5rem;cursor:pointer;text-align:center;font-family:inherit;width:100%;transition:background 0.12s}
+  .qa-btn:active{background:var(--gl)}
+  .qa-ico{font-size:1.4rem;margin-bottom:3px}
+  .qa-lbl{font-size:0.8rem;font-weight:500;color:var(--tx)}
   .kanban{grid-template-columns:1fr}
   .fr2{grid-template-columns:1fr}
   header .btn-g:not(.keepm){display:none}
@@ -349,9 +353,10 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
   <div class="page" id="page-pagos">
     <div class="sh">
       <div class="st">Dashboard de pagos</div>
-      <div style="display:flex;gap:5px">
-        <button class="btn-g" onclick="exportCSV()">⬇ CSV</button>
-        <button class="btn-p" onclick="openModal(null,'pago')">+ Pago</button>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="btn-g" onclick="exportPagosPendientes()" title="Excel de pendientes">📊 Pendientes</button>
+        <button class="btn-g" onclick="setPagoTab('realizados',document.getElementById('ptab-realizados'));setTimeout(exportRealizadosFiltrado,200)" title="Excel de realizados">📊 Realizados</button>
+        <button class="btn-p" onclick="openPagoRapido()">+ Pago</button>
       </div>
     </div>
     <div id="av-pagos"></div>
@@ -399,12 +404,113 @@ main{flex:1;overflow-y:auto;padding:1.2rem 1.2rem 5rem;-webkit-overflow-scrollin
 
 <!-- MOBILE NAV -->
 <nav class="mob-nav">
-  <button class="mnb active" onclick="showPage('inicio',this,'m')"><span class="mnbi">🏠</span>Inicio</button>
-  <button class="mnb" onclick="showPage('todas',this,'m')"><span class="mnbi">≡</span>Todas</button>
-  <button class="mnb" onclick="openModal()" style="color:var(--ac2)"><span class="mnbi" style="font-size:1.25rem;line-height:1">+</span></button>
-  <button class="mnb" onclick="showPage('pagos',this,'m')"><span class="mnbi">💳</span>Pagos</button>
-  <button class="mnb" onclick="showPage('kanban',this,'m')"><span class="mnbi">▦</span>Tablero</button>
+  <button class="mnb active" id="mnb-inicio" onclick="showPage('inicio',this,'m')"><span class="mnbi">🏠</span>Inicio</button>
+  <button class="mnb" id="mnb-todas" onclick="showPage('todas',this,'m')"><span class="mnbi">≡</span>Todas</button>
+  <button class="mnb" onclick="openQuickAdd()" style="color:#fff"><span class="mnbi" style="width:38px;height:38px;background:var(--ac);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin:0 auto;margin-bottom:2px">+</span></button>
+  <button class="mnb" id="mnb-pagos" onclick="showPage('pagos',this,'m')"><span class="mnbi">💳</span>Pagos</button>
+  <button class="mnb" id="mnb-kanban" onclick="showPage('kanban',this,'m')"><span class="mnbi">▦</span>Tablero</button>
 </nav>
+
+<!-- QUICK ADD OVERLAY -->
+<div id="qao" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:3000;align-items:flex-end;justify-content:center;padding:0 0 60px" onclick="if(event.target===this)closeQA()">
+  <div style="background:var(--sf);border-radius:20px 20px 0 0;padding:1.2rem 1rem;width:100%;max-width:500px">
+    <div style="width:36px;height:4px;background:var(--bd2);border-radius:4px;margin:0 auto 1rem"></div>
+    <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:var(--mu);text-align:center;margin-bottom:0.9rem">¿Qué quieres agregar?</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <button class="qa-btn" onclick="closeQA();openModal()">
+        <div class="qa-ico">✅</div><div class="qa-lbl">Tarea</div>
+      </button>
+      <button class="qa-btn" onclick="closeQA();openPagoRapido()">
+        <div class="qa-ico">💳</div><div class="qa-lbl">Pago / Factura</div>
+      </button>
+      <button class="qa-btn" onclick="closeQA();openNotaRapida()">
+        <div class="qa-ico">📝</div><div class="qa-lbl">Nota rápida</div>
+      </button>
+      <button class="qa-btn" onclick="closeQA();openModal(null,'reunion')">
+        <div class="qa-ico">📅</div><div class="qa-lbl">Reunión</div>
+      </button>
+      <button class="qa-btn" onclick="closeQA();openModal(null,'cumple')" style="grid-column:span 2">
+        <div class="qa-ico">🎂</div><div class="qa-lbl">Cumpleaños</div>
+      </button>
+    </div>
+    <button onclick="closeQA()" style="width:100%;background:transparent;border:1px solid var(--bd);color:var(--mu);padding:0.6rem;border-radius:10px;cursor:pointer;font-family:inherit;font-size:0.85rem">Cancelar</button>
+  </div>
+</div>
+
+<!-- PAGO RÁPIDO -->
+<div class="mo" id="pr-modal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="md" style="max-width:440px">
+  <div class="mt">💳 Nuevo pago / factura</div>
+  <div class="fg"><label class="fl">Título *</label><input type="text" class="fi" id="pr-tit" placeholder="Ej: Renta, Luz, Seguro..."></div>
+  <div class="fr2">
+    <div class="fg"><label class="fl">Monto ($)</label><input type="number" class="fi" id="pr-monto" placeholder="0.00" step="0.01"></div>
+    <div class="fg"><label class="fl">Proveedor</label><input type="text" class="fi" id="pr-prov" placeholder="Nombre..."></div>
+  </div>
+  <div class="fr2">
+    <div class="fg"><label class="fl">Empresa</label>
+      <select class="fs" id="pr-emp">
+        <option value="personal">Personal</option>
+        <option value="seis8">Seis8</option>
+        <option value="otro">Otro</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">Prioridad</label>
+      <select class="fs" id="pr-prio"><option value="alta">Alta 🔴</option><option value="media" selected>Media 🟡</option><option value="baja">Baja 🟢</option></select>
+    </div>
+  </div>
+  <div class="fr2">
+    <div class="fg"><label class="fl">Fecha de vencimiento</label><input type="date" class="fi" id="pr-fecha"></div>
+    <div class="fg"><label class="fl">Recurrencia</label>
+      <select class="fs" id="pr-recur">
+        <option value="">Sin recurrencia</option>
+        <option value="monthly">Cada mes</option>
+        <option value="monthly5">Día 5 del mes</option>
+        <option value="monthly10">Día 10 del mes</option>
+        <option value="monthly15">Día 15 del mes</option>
+        <option value="monthly20">Día 20 del mes</option>
+        <option value="weekly">Cada semana</option>
+        <option value="yearly">Cada año</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label class="fl">Proyecto</label>
+    <select class="fs" id="pr-proj">
+      <option value="">— Sin proyecto —</option>
+      <option value="_personal">Personal</option>
+      <option value="_seis8">Seis8</option>
+    </select>
+  </div>
+  <div class="fg"><label class="fl">Adjuntar factura (opcional)</label><input type="file" class="fi" id="pr-factura" accept="image/*,.pdf" style="padding:0.35rem"></div>
+  <div class="fg"><label class="fl">Notas</label><textarea class="fta" id="pr-desc" placeholder="Notas..." style="min-height:50px"></textarea></div>
+  <div class="mf">
+    <button class="btn-cl" onclick="document.getElementById('pr-modal').classList.remove('open')">Cancelar</button>
+    <button class="btn-p" onclick="savePagoRapido()">💾 Guardar pago</button>
+  </div>
+</div>
+</div>
+
+<!-- NOTA RÁPIDA -->
+<div class="mo" id="nr-modal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="md" style="max-width:380px">
+  <div class="mt">📝 Nota rápida</div>
+  <div style="font-size:0.77rem;color:var(--mu);margin:-0.6rem 0 0.9rem">Sin fecha — aparece en "En la mira"</div>
+  <div class="fg"><input type="text" class="fi" id="nr-tit" placeholder="¿Qué quieres anotar?"></div>
+  <div class="fg"><textarea class="fta" id="nr-desc" placeholder="Detalles..." style="min-height:75px"></textarea></div>
+  <div class="fg"><label class="fl">Categoría</label>
+    <select class="fs" id="nr-cat">
+      <option value="personal">Personal</option>
+      <option value="trabajo">Trabajo</option>
+      <option value="salud">Salud</option>
+      <option value="estudio">Estudio</option>
+      <option value="otro">Otro</option>
+    </select>
+  </div>
+  <div class="mf">
+    <button class="btn-cl" onclick="document.getElementById('nr-modal').classList.remove('open')">Cancelar</button>
+    <button class="btn-p" onclick="saveNota()">💾 Guardar nota</button>
+  </div>
+</div>
+</div>
 
 <!-- TASK MODAL -->
 <div class="mo" id="mo" onclick="if(event.target===this)closeModal()">
@@ -650,22 +756,33 @@ function signOut(){if(!confirm('¿Cerrar sesión?'))return;gToken=null;user=null
 // 3. JSON en Drive (respaldo completo con todos los campos)
 
 let sheetId = localStorage.getItem('cm_sheet_id') || null;
-// ID fijo de carpeta MISAPPS en Drive de Claudia
-const MISAPPS_FOLDER_ID = '1fgIVoExdfWXYqbbuQVEgiPayVpGcUFUa';
+const MISAPPS_ID = '1fgIVoExdfWXYqbbuQVEgiPayVpGcUFUa';
 
-// Normalizar siempre: done=boolean, monto=string numérico, campos requeridos presentes
+// Normaliza todos los campos al cargar datos (previene bugs de tipos)
 function fix(arr){
   return (arr||[]).map(t=>({
-    id:t.id||'', titulo:t.titulo||'', cat:t.cat||'trabajo', prio:t.prio||'media',
-    fecha:t.fecha||'', hora:t.hora||'', desc:t.desc||'', zoom:t.zoom||'',
-    status:t.status||'todo', projId:t.projId||'', recur:t.recur||'',
-    monto:t.monto||'', proveedor:t.proveedor||'', empresa:t.empresa||'',
+    id:t.id||Date.now().toString(),
+    titulo:t.titulo||'',
+    cat:t.cat||'trabajo',
+    prio:t.prio||'media',
+    fecha:t.fecha||'',
+    hora:t.hora||'',
+    desc:t.desc||'',
+    zoom:t.zoom||'',
+    status:t.status||'todo',
+    projId:t.projId||'',
+    recur:t.recur||'',
+    monto:t.monto||'',
+    proveedor:t.proveedor||'',
+    empresa:t.empresa||'personal',
     fechaPago:t.fechaPago||'',
     done: t.done===true || t.done==='SI' || t.done==='true' || t.done===1,
     creado:t.creado||Date.now(),
-    gcalId:t.gcalId||null, gcalEventId:t.gcalEventId||null,
+    gcalId:t.gcalId||null,
+    gcalEventId:t.gcalEventId||null,
     checklist:Array.isArray(t.checklist)?t.checklist:[],
-    factura:t.factura||null, facturaName:t.facturaName||null,
+    factura:t.factura||null,
+    facturaName:t.facturaName||null,
   }));
 }
 
@@ -674,99 +791,104 @@ function saveLocal(){
   localStorage.setItem('cm_projects', JSON.stringify(projects));
   localStorage.setItem('cm_updated', new Date().toISOString());
 }
+
 function loadLocal(){
-  const t=localStorage.getItem('cm_tasks')||localStorage.getItem('claumind_v3')||localStorage.getItem('claumind_data');
-  const p=localStorage.getItem('cm_projects')||localStorage.getItem('claumind_v3_p')||localStorage.getItem('claumind_data_p');
-  if(t){ tasks=fix(JSON.parse(t)); localStorage.setItem('cm_tasks',JSON.stringify(tasks)); }
-  if(p){ projects=JSON.parse(p); }
+  const t = localStorage.getItem('cm_tasks')
+    || localStorage.getItem('claumind_v3')
+    || localStorage.getItem('claumind_data');
+  const p = localStorage.getItem('cm_projects')
+    || localStorage.getItem('claumind_v3_p')
+    || localStorage.getItem('claumind_data_p');
+  if(t){ tasks = fix(JSON.parse(t)); localStorage.setItem('cm_tasks', JSON.stringify(tasks)); }
+  if(p){ projects = JSON.parse(p); }
 }
 
 // ── GOOGLE SHEETS ─────────────────────────────────────────────
-const SHEETS_API='https://sheets.googleapis.com/v4/spreadsheets';
+const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 async function findOrCreateSheet(){
-  // 1. Si ya tenemos ID guardado, verificar que sigue existiendo
   if(sheetId){
-    const r=await fetch(`${SHEETS_API}/${sheetId}?fields=spreadsheetId`,{headers:{Authorization:'Bearer '+gToken}});
+    const r = await fetch(`${SHEETS_API}/${sheetId}?fields=spreadsheetId`, {headers:{Authorization:'Bearer '+gToken}});
     if(r.ok) return sheetId;
-    sheetId=null; localStorage.removeItem('cm_sheet_id');
+    sheetId = null; localStorage.removeItem('cm_sheet_id');
   }
-  // 2. Buscar la hoja en la carpeta MISAPPS directamente
-  const s=await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${SHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,{headers:{Authorization:'Bearer '+gToken}});
-  const sd=await s.json();
+  // Buscar hoja existente por nombre
+  const s = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${SHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`, {headers:{Authorization:'Bearer '+gToken}});
+  const sd = await s.json();
   if(sd.files?.length){
-    sheetId=sd.files[0].id;
-    localStorage.setItem('cm_sheet_id',sheetId);
+    sheetId = sd.files[0].id;
+    localStorage.setItem('cm_sheet_id', sheetId);
     return sheetId;
   }
-  // 3. Crear hoja nueva directamente dentro de MISAPPS
-  const create=await fetch(SHEETS_API,{method:'POST',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},
-    body:JSON.stringify({properties:{title:SHEET_NAME},sheets:[{properties:{sheetId:0,title:'Tareas'}},{properties:{sheetId:1,title:'Proyectos'}}]})});
-  const sheet=await create.json();
-  if(!sheet.spreadsheetId){console.log('Error creando sheet',sheet);return null;}
-  sheetId=sheet.spreadsheetId;
-  localStorage.setItem('cm_sheet_id',sheetId);
+  // Crear hoja nueva
+  const cr = await fetch(SHEETS_API, {method:'POST', headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},
+    body: JSON.stringify({properties:{title:SHEET_NAME}, sheets:[
+      {properties:{sheetId:0,title:'Tareas'}},
+      {properties:{sheetId:1,title:'Proyectos'}},
+    ]})});
+  const sheet = await cr.json();
+  if(!sheet.spreadsheetId){ console.error('Error creando sheet', sheet); return null; }
+  sheetId = sheet.spreadsheetId;
+  localStorage.setItem('cm_sheet_id', sheetId);
   // Mover a carpeta MISAPPS
   try{
-    const pRes=await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}?fields=parents`,{headers:{Authorization:'Bearer '+gToken}});
-    const pData=await pRes.json();
-    const oldParents=(pData.parents||[]).join(',');
-    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}?addParents=${MISAPPS_FOLDER_ID}&removeParents=${oldParents}`,
-      {method:'PATCH',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'}});
-  }catch(e){console.log('mover hoja error:',e);}
+    const pr = await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}?fields=parents`, {headers:{Authorization:'Bearer '+gToken}});
+    const pd = await pr.json();
+    const old = (pd.parents||[]).join(',');
+    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}?addParents=${MISAPPS_ID}&removeParents=${old}`,
+      {method:'PATCH', headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'}});
+  }catch(e){ console.log('mover sheet:', e); }
   await writeSheetHeaders();
   return sheetId;
 }
 
 async function writeSheetHeaders(){
-  const th=[['ID','Título','Categoría','Prioridad','Fecha Vcto','Hora','Estado','Proyecto','Recurrencia','Monto','Proveedor','Empresa','Zoom','Notas','Completada','Fecha Pago','Creada','GCalID']];
-  const ph=[['ID','Nombre','Color','Descripción','Creado']];
-  await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:R1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:th})});
-  await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:ph})});
+  const th = [['ID','Título','Categoría','Prioridad','Fecha Vcto','Hora','Estado','Proyecto','Recurrencia','Monto','Proveedor','Empresa','Zoom','Notas','Completada','Fecha Pago','Creada','GCalID']];
+  const ph = [['ID','Nombre','Color','Descripción','Creado']];
+  await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:R1?valueInputOption=RAW`, {method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:th})});
+  await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1?valueInputOption=RAW`, {method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:ph})});
 }
 
 async function saveToSheets(){
   if(!gToken||!sheetId) return;
   try{
-    const tr=tasks.map(t=>[
-      t.id,t.titulo,t.cat,t.prio,t.fecha,t.hora,
-      t.status||'todo',t.projId||'',t.recur||'',t.monto||'',t.proveedor||'',
-      t.empresa||'',t.zoom||'',t.desc||'',
+    const tr = tasks.map(t=>[
+      t.id, t.titulo, t.cat, t.prio, t.fecha, t.hora,
+      t.status||'todo', t.projId||'', t.recur||'', t.monto||'', t.proveedor||'',
+      t.empresa||'', t.zoom||'', t.desc||'',
       t.done?'SI':'NO', t.fechaPago||'',
-      t.creado?new Date(t.creado).toLocaleString('es-MX'):'',
+      t.creado ? new Date(t.creado).toLocaleString('es-MX') : '',
       t.gcalId||t.gcalEventId||''
     ]);
-    const pr=projects.map(p=>[p.id,p.name,p.color,p.desc||'',p.creado?new Date(p.creado).toLocaleString('es-MX'):'']);
-    await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A2:R10000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:tr.length?tr:[[]]})});
-    await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A2:E1000?valueInputOption=RAW`,{method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:pr.length?pr:[[]]})});
-  }catch(e){console.log('saveToSheets',e);}
+    const pr = projects.map(p=>[p.id,p.name,p.color,p.desc||'',p.creado?new Date(p.creado).toLocaleString('es-MX'):'']);
+    await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A2:R10000?valueInputOption=RAW`, {method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:tr.length?tr:[[]]})});
+    await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A2:E1000?valueInputOption=RAW`, {method:'PUT',headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:JSON.stringify({values:pr.length?pr:[[]]})});
+  }catch(e){ console.log('saveToSheets', e); }
 }
 
 async function loadFromSheets(){
   if(!gToken||!sheetId) return false;
   try{
-    const r=await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:R10000`,{headers:{Authorization:'Bearer '+gToken}});
+    const r = await fetch(`${SHEETS_API}/${sheetId}/values/Tareas!A1:R10000`, {headers:{Authorization:'Bearer '+gToken}});
     if(!r.ok) return false;
-    const d=await r.json();
-    const rows=(d.values||[]).slice(1).filter(r=>r[0]);
+    const d = await r.json();
+    const rows = (d.values||[]).slice(1).filter(r=>r[0]);
     if(!rows.length) return false;
-    // Columnas: ID,Título,Cat,Prio,Fecha,Hora,Status,Proj,Recur,Monto,Proveedor,Empresa,Zoom,Desc,Done,FechaPago,Creado,GCalID
-    const raw=rows.map(r=>({
-      id:r[0]||'', titulo:r[1]||'', cat:r[2]||'trabajo', prio:r[3]||'media',
-      fecha:r[4]||'', hora:r[5]||'', status:r[6]||'todo', projId:r[7]||'', recur:r[8]||'',
-      monto:r[9]||'', proveedor:r[10]||'', empresa:r[11]||'', zoom:r[12]||'', desc:r[13]||'',
+    tasks = fix(rows.map(r=>({
+      id:r[0], titulo:r[1], cat:r[2], prio:r[3],
+      fecha:r[4], hora:r[5], status:r[6], projId:r[7], recur:r[8],
+      monto:r[9], proveedor:r[10], empresa:r[11], zoom:r[12], desc:r[13],
       done:r[14]==='SI', fechaPago:r[15]||'',
       creado:r[16]?new Date(r[16]).getTime():Date.now(),
       gcalId:r[17]||null,
-    }));
-    tasks=fix(raw); // normalizar done y demás
-    const rp=await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1000`,{headers:{Authorization:'Bearer '+gToken}});
+    })));
+    const rp = await fetch(`${SHEETS_API}/${sheetId}/values/Proyectos!A1:E1000`, {headers:{Authorization:'Bearer '+gToken}});
     if(rp.ok){
-      const dp=await rp.json();
-      projects=(dp.values||[]).slice(1).filter(r=>r[0]).map(r=>({id:r[0],name:r[1]||'',color:r[2]||'#7c6af7',desc:r[3]||'',creado:r[4]?new Date(r[4]).getTime():Date.now()}));
+      const dp = await rp.json();
+      projects = (dp.values||[]).slice(1).filter(r=>r[0]).map(r=>({id:r[0],name:r[1]||'',color:r[2]||'#7c6af7',desc:r[3]||'',creado:r[4]?new Date(r[4]).getTime():Date.now()}));
     }
     return true;
-  }catch(e){console.log('loadFromSheets',e);return false;}
+  }catch(e){ console.log('loadFromSheets', e); return false; }
 }
 
 async function loadDrive(){
@@ -1013,15 +1135,18 @@ function renderDashPagos(){
   const hoy=ts();
   const en7=new Date();en7.setDate(en7.getDate()+7);
   const en7s=`${en7.getFullYear()}-${p2(en7.getMonth()+1)}-${p2(en7.getDate())}`;
-  // Solo pagos NO realizados con fecha en los próximos 7 días o vencidos
-  const pagos=tasks.filter(t=>t.cat==='pago'&&!t.done&&t.fecha&&t.fecha<=en7s);
+  // TODOS los pagos pendientes
+  const pagos=tasks.filter(t=>t.cat==='pago'&&!t.done);
   const venc=pagos.filter(t=>t.fecha<hoy);
   const prox=pagos.filter(t=>t.fecha>=hoy);
   const el=document.getElementById('sec-pagos-dash');
   if(!pagos.length){el.innerHTML='';return;}
   let h=`<div class="dash-title" style="display:flex;align-items:center;justify-content:space-between">
     <span>💳 Pagos pendientes <span class="cnt">${pagos.length}</span></span>
-    <button onclick="showPage('pagos',null)" style="font-size:0.65rem;color:var(--ac2);background:none;border:none;cursor:pointer">Ver todos →</button>
+    <div style="display:flex;gap:5px;align-items:center">
+      <button onclick="exportPagosPendientes()" style="font-size:0.62rem;color:var(--gn);background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.25);border-radius:6px;padding:2px 7px;cursor:pointer;font-family:inherit">📊 Excel</button>
+      <button onclick="showPage('pagos',null)" style="font-size:0.62rem;color:var(--ac2);background:none;border:none;cursor:pointer;font-family:inherit">Ver todos →</button>
+    </div>
   </div>`;
   if(venc.length)h+=`<div class="av rd" style="margin-bottom:6px">⚠ Vencidos: ${venc.map(t=>t.titulo+(t.monto?' $'+parseFloat(t.monto).toLocaleString('es-MX'):'')).join(' · ')}</div>`;
   if(prox.length)h+=`<div class="av am" style="margin-bottom:6px">🔔 Próximos 7 días: ${prox.map(t=>t.titulo+' ('+fd(t.fecha)+')').join(' · ')}</div>`;
@@ -1047,31 +1172,51 @@ function marcarPagado(e,id){
   document.getElementById('dm')?.classList.remove('open');
   const t=tasks.find(x=>x.id===id);
   if(!t)return;
-  document.getElementById('modal-pago-fecha')?.remove();
+  document.getElementById('mpf')?.remove();
   const hoy=ts();
   const el=document.createElement('div');
-  el.id='modal-pago-fecha';
-  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:3000;padding:1rem';
+  el.id='mpf';
+  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.78);display:flex;align-items:center;justify-content:center;z-index:4000;padding:1rem';
   el.innerHTML='<div style="background:#17171f;border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:1.5rem;width:100%;max-width:360px">'
-    +'<div style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;margin-bottom:0.4rem;color:#f0f0f5">Registrar pago realizado</div>'
-    +'<div style="font-size:0.85rem;color:#7a7a8c;margin-bottom:1.1rem">'+t.titulo+(t.monto?' &mdash; <strong style=color:#fbbf24>$'+parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})+'</strong>':'')+'</div>'
-    +'<label style="font-size:0.75rem;color:#7a7a8c;display:block;margin-bottom:5px">¿En qué fecha realizaste este pago?</label>'
-    +'<input type="date" id="inp-fpago" value="'+hoy+'" style="width:100%;background:#0e0e12;border:1px solid rgba(255,255,255,0.15);color:#f0f0f5;border-radius:8px;padding:0.65rem 0.85rem;font-size:0.9rem;margin-bottom:1.1rem;outline:none;box-sizing:border-box">'
+    +'<div style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;color:#f0f0f5;margin-bottom:0.3rem">Registrar pago realizado</div>'
+    +'<div style="font-size:0.83rem;color:#7a7a8c;margin-bottom:1rem">'+t.titulo+(t.monto?' — <b style=color:#fbbf24>$'+parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})+'</b>':'')+'</div>'
+    +'<label style="font-size:0.73rem;color:#7a7a8c;display:block;margin-bottom:4px">Fecha en que realizaste el pago:</label>'
+    +'<input type="date" id="mpf-date" value="'+hoy+'" style="width:100%;background:#0e0e12;border:1px solid rgba(255,255,255,0.15);color:#f0f0f5;border-radius:8px;padding:0.62rem 0.82rem;font-size:0.9rem;margin-bottom:1rem;outline:none;box-sizing:border-box">'
     +'<div style="display:flex;gap:8px;justify-content:flex-end">'
-    +'<button id="btn-cancel-pago" style="background:transparent;border:1px solid rgba(255,255,255,0.13);color:#7a7a8c;padding:0.5rem 1rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-family:inherit">Cancelar</button>'
-    +'<button id="btn-ok-pago" style="background:#7c6af7;color:#fff;border:none;padding:0.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;font-family:inherit">✓ Confirmar pago</button>'
+    +'<button id="mpf-no" style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:#7a7a8c;padding:0.48rem 1rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-family:inherit">Cancelar</button>'
+    +'<button id="mpf-si" style="background:#7c6af7;color:#fff;border:none;padding:0.48rem 1.2rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;font-family:inherit">✓ Confirmar pago</button>'
     +'</div></div>';
   document.body.appendChild(el);
-  setTimeout(()=>document.getElementById('inp-fpago')?.focus(),50);
-  document.getElementById('btn-cancel-pago').onclick=()=>el.remove();
-  document.getElementById('btn-ok-pago').onclick=()=>{
-    const fecha=document.getElementById('inp-fpago').value||hoy;
+  setTimeout(()=>document.getElementById('mpf-date')?.focus(),60);
+  document.getElementById('mpf-no').onclick=()=>el.remove();
+  el.addEventListener('click',ev=>{if(ev.target===el)el.remove();});
+  document.getElementById('mpf-si').onclick=()=>{
+    const fecha=document.getElementById('mpf-date').value||hoy;
     el.remove();
     tasks=tasks.map(x=>x.id===id?{...x,done:true,fechaPago:fecha,status:'done'}:x);
+    const done=tasks.find(x=>x.id===id);
+    if(done&&done.recur)generarSiguienteRecurrente(done);
     saveDrive();renderAll();
-    toast('Pago registrado el '+fd(fecha));
+    toast('"'+t.titulo+'" pagado el '+fd(fecha));
   };
-  el.addEventListener('click',ev=>{if(ev.target===el)el.remove();});
+}
+
+function generarSiguienteRecurrente(t){
+  if(!t.recur||!t.fecha)return;
+  const base=new Date(t.fecha);
+  let next=new Date(base);
+  if(t.recur==='daily')next.setDate(next.getDate()+1);
+  else if(t.recur==='weekly')next.setDate(next.getDate()+7);
+  else if(t.recur==='monthly')next.setMonth(next.getMonth()+1);
+  else if(t.recur==='yearly')next.setFullYear(next.getFullYear()+1);
+  else if(t.recur.startsWith('monthly')){
+    const day=parseInt(t.recur.replace('monthly',''));
+    next=new Date(base.getFullYear(),base.getMonth()+1,day);
+  }
+  const ns=next.toISOString().substring(0,10);
+  if(tasks.find(x=>x.recurParent===t.id&&x.fecha===ns))return;
+  tasks.push({...t,id:Date.now().toString()+'r',done:false,fechaPago:'',status:'todo',creado:Date.now(),fecha:ns,recurParent:t.id,gcalId:null,gcalEventId:null});
+  toast('↻ Siguiente pago generado para '+fd(ns));
 }
 
 function renderDashCumples(){
@@ -1118,7 +1263,10 @@ function renderDayTabs(){
 
 function renderDayList(){
   const ds=dsOf(selectedDayOffset);
-  const dayT=tasks.filter(t=>t.fecha===ds&&t.cat!=='cumple'&&t.cat!=='pago');
+  // Tareas del día: excluir cumpleaños y pagos del selector de días
+  // GCal: solo incluir si es hoy o mañana
+  const esHoyOManana=ds===ts()||ds===dsOf(1);
+  const dayT=tasks.filter(t=>t.fecha===ds&&t.cat!=='cumple'&&t.cat!=='pago'&&(t.cat!=='reunion'||!t.gcalId||esHoyOManana));
   const noT=dayT.filter(t=>!t.hora).sort((a,b)=>a.prio==='alta'?-1:b.prio==='alta'?1:0);
   const withT=dayT.filter(t=>t.hora).sort((a,b)=>a.hora.localeCompare(b.hora));
   const el=document.getElementById('list-dia');
@@ -1172,6 +1320,8 @@ function setPagoTab(tab,el){
   curPagoTab=tab;
   document.querySelectorAll('[id^="ptab-"]').forEach(b=>b.classList.remove('active'));
   el?.classList.add('active');
+  const ff=document.getElementById('filtro-fecha-pagos');
+  if(ff)ff.style.display=tab==='realizados'?'block':'none';
   renderPagos();
 }
 
@@ -1422,6 +1572,7 @@ function openModal(id=null,cat=null,projId=null){
     document.getElementById('f-status').value='todo';
     document.getElementById('f-monto').value='';
     document.getElementById('f-prov').value='';
+    const _emp=document.getElementById('f-empresa');if(_emp)_emp.value='personal';
     if(projId)ps.value=projId;
     checklist=[];
   }
@@ -1431,6 +1582,85 @@ function openModal(id=null,cat=null,projId=null){
   setTimeout(()=>document.getElementById('f-tit').focus(),100);
 }
 function closeModal(){document.getElementById('mo').classList.remove('open');}
+
+// ── QUICK ADD ────────────────────────────────────────────────
+function openQuickAdd(){document.getElementById('qao').style.display='flex';}
+function closeQA(){document.getElementById('qao').style.display='none';}
+
+function openPagoRapido(){
+  // Poblar proyectos en el select
+  const ps=document.getElementById('pr-proj');
+  const existingProjs=ps.querySelectorAll('option[data-custom]');
+  existingProjs.forEach(o=>o.remove());
+  projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;o.dataset.custom='1';ps.appendChild(o);});
+  // Limpiar
+  ['pr-tit','pr-monto','pr-prov','pr-desc'].forEach(id=>{document.getElementById(id).value='';});
+  document.getElementById('pr-emp').value='personal';
+  document.getElementById('pr-prio').value='media';
+  document.getElementById('pr-fecha').value='';
+  document.getElementById('pr-recur').value='';
+  document.getElementById('pr-proj').value='';
+  document.getElementById('pr-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('pr-tit').focus(),100);
+}
+
+async function savePagoRapido(){
+  const titulo=document.getElementById('pr-tit').value.trim();
+  if(!titulo){document.getElementById('pr-tit').style.borderColor='var(--rd)';return;}
+  document.getElementById('pr-tit').style.borderColor='';
+  let facturaData=null,facturaName=null;
+  const fi=document.getElementById('pr-factura');
+  if(fi.files&&fi.files[0]){
+    const file=fi.files[0];facturaName=file.name;
+    facturaData=await new Promise(r=>{const fr=new FileReader();fr.onload=e=>r(e.target.result);fr.readAsDataURL(file);});
+  }
+  const t={
+    id:Date.now().toString(),titulo,cat:'pago',
+    prio:document.getElementById('pr-prio').value,
+    fecha:document.getElementById('pr-fecha').value,
+    hora:'',desc:document.getElementById('pr-desc').value.trim(),zoom:'',
+    status:'todo',projId:document.getElementById('pr-proj').value||'',
+    recur:document.getElementById('pr-recur').value,
+    monto:document.getElementById('pr-monto').value,
+    proveedor:document.getElementById('pr-prov').value.trim(),
+    empresa:document.getElementById('pr-emp').value,
+    fechaPago:'',done:false,creado:Date.now(),
+    gcalId:null,gcalEventId:null,checklist:[],
+    factura:facturaData,facturaName,
+  };
+  tasks.unshift(t);
+  document.getElementById('pr-modal').classList.remove('open');
+  saveDrive();renderAll();
+  toast('✓ Pago "'+titulo+'" guardado');
+}
+
+function openNotaRapida(){
+  document.getElementById('nr-tit').value='';
+  document.getElementById('nr-desc').value='';
+  document.getElementById('nr-cat').value='personal';
+  document.getElementById('nr-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('nr-tit').focus(),100);
+}
+
+function saveNota(){
+  const titulo=document.getElementById('nr-tit').value.trim();
+  if(!titulo){document.getElementById('nr-tit').style.borderColor='var(--rd)';return;}
+  document.getElementById('nr-tit').style.borderColor='';
+  const t={
+    id:Date.now().toString(),titulo,
+    cat:document.getElementById('nr-cat').value,
+    prio:'baja',fecha:'',hora:'',
+    desc:document.getElementById('nr-desc').value.trim(),
+    zoom:'',status:'todo',projId:'',recur:'',
+    monto:'',proveedor:'',empresa:'',fechaPago:'',
+    done:false,creado:Date.now(),
+    gcalId:null,gcalEventId:null,checklist:[],factura:null,facturaName:null,
+  };
+  tasks.unshift(t);
+  document.getElementById('nr-modal').classList.remove('open');
+  saveDrive();renderAll();
+  toast('✓ Nota en "En la mira"');
+}
 
 // ─── CHECKLIST ────────────────────────────────────────────────
 function renderCLEdit(){document.getElementById('cl-edit').innerHTML=checklist.map((c,i)=>`<div class="cli"><div class="clck ${c.done?'ck':''}" onclick="togCL(${i})"></div><span class="clt ${c.done?'ck':''}">${c.text}</span><button class="cld" onclick="delCL(${i})">✕</button></div>`).join('');}
@@ -1455,20 +1685,19 @@ function togDone(e,id){
   e.stopPropagation();
   const t=tasks.find(x=>x.id===id);
   if(!t)return;
-  if(t.cat==='pago'&&!t.done){marcarPagado(null,id);return;}
+  if(t.cat==='pago'&&!t.done){ marcarPagado(null,id); return; }
   tasks=tasks.map(x=>x.id===id?{...x,done:!x.done,status:!x.done?'done':x.status==='done'?'todo':x.status}:x);
   saveDrive();renderAll();
 }
 function delTask(e,id){
   e.stopPropagation();
-  const t=tasks.find(x=>x.id===id);
-  if(!t)return;
-  const msg=t.cat==='pago'
-    ?`¿Eliminar el pago "${t.titulo}"?\nSi ya lo pagaste, usa el botón "✓ Pagado" para guardarlo en el historial.`
-    :`¿Eliminar la tarea "${t.titulo}"?`;
-  if(!confirm(msg))return;
-  tasks=tasks.filter(x=>x.id!==id);
-  saveDrive();renderAll();
+  const t=tasks.find(x=>x.id===id);if(!t)return;
+  if(t.cat==='pago'&&!t.done){
+    if(!confirm('"'+t.titulo+'" — Pago pendiente. Cancela para marcarlo como pagado primero. Acepta para eliminar.'))return;
+    tasks=tasks.filter(x=>x.id!==id);saveDrive();renderAll();return;
+  }
+  if(!confirm('Eliminar: '+t.titulo+'?'))return;
+  tasks=tasks.filter(x=>x.id!==id);saveDrive();renderAll();
 }
 function editTask(e,id){e.stopPropagation();openModal(id);}
 
@@ -1485,16 +1714,16 @@ function openDetail(id){
   if(t.monto)h+=`<div class="ds"><div class="dl">Pago</div><div style="font-size:1.2rem;font-weight:700;color:var(--am)">$${parseFloat(t.monto).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>${t.proveedor?`<div style="font-size:0.78rem;color:var(--mu);margin-top:1px">${t.proveedor}</div>`:''}</div>`;
   if(t.factura)h+=`<div class="ds"><div class="dl">Factura</div><div class="fchip" onclick="window.open('${t.factura}')">📎 ${t.facturaName||'Ver factura'}</div></div>`;
   if(clt)h+=`<div class="ds"><div class="dl">Checklist (${cld}/${clt})</div><div class="pbar"><div class="pfill" style="width:${clt?Math.round(cld/clt*100):0}%"></div></div><div style="margin-top:5px">${t.checklist.map((c,i)=>`<div class="cli"><div class="clck ${c.done?'ck':''}" onclick="togCLd('${id}',${i})"></div><span class="clt ${c.done?'ck':''}">${c.text}</span></div>`).join('')}</div></div>`;
-  const accion=t.done
+  const btnLabel=t.done?'↩ Reabrir':t.cat==='pago'?'✓ Marcar Pagado':'✓ Completar';
+  const btnAct=t.done
     ?`togDone(event,'${id}');document.getElementById('dm').classList.remove('open')`
     :t.cat==='pago'
-      ?`document.getElementById('dm').classList.remove('open');setTimeout(()=>marcarPagado(null,'${id}'),150)`
+      ?`document.getElementById('dm').classList.remove('open');setTimeout(()=>marcarPagado(null,'${id}'),100)`
       :`togDone(event,'${id}');document.getElementById('dm').classList.remove('open')`;
-  const label=t.done?'↩ Reabrir':t.cat==='pago'?'✓ Marcar Pagado':'✓ Completar';
   h+=`<div class="mf">
     <button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open')">Cerrar</button>
     <button class="btn-cl" onclick="document.getElementById('dm').classList.remove('open');delTask(event,'${id}')">Eliminar</button>
-    <button class="btn-p" onclick="${accion}">${label}</button>
+    <button class="btn-p" onclick="${btnAct}">${btnLabel}</button>
   </div>`;
   document.getElementById('dm-c').innerHTML=h;document.getElementById('dm').classList.add('open');
 }
@@ -1683,31 +1912,32 @@ function showBackupMenu(){
   setTimeout(()=>document.addEventListener('click',function h(e){if(!div.contains(e.target)&&e.target.getAttribute('onclick')!=='showBackupMenu()'){div.remove();document.removeEventListener('click',h);}},),100);
 }
 
+// ─── INIT ─────────────────────────────────────────────────────
 
-// ─── EXPORT EXCEL ─────────────────────────────────────────────
+// ── EXCEL REPORTS ────────────────────────────────────────────
 function exportPagosPendientes(){
   if(typeof XLSX==='undefined'){toast('Cargando...');return;}
   const hoy=ts(),en7=new Date();en7.setDate(en7.getDate()+7);
   const en7s=en7.toISOString().substring(0,10);
   const pend=tasks.filter(t=>t.cat==='pago'&&!t.done).sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
   if(!pend.length){toast('No hay pagos pendientes');return;}
-  const estado=t=>!t.fecha?'Sin fecha':t.fecha<hoy?'VENCIDO':t.fecha===hoy?'Vence HOY':t.fecha<=en7s?'Esta semana':'Próximo';
+  const estado=t=>!t.fecha?'Sin fecha':t.fecha<hoy?'⚠ VENCIDO':t.fecha===hoy?'Hoy':t.fecha<=en7s?'Esta semana':'Próximo';
   const wb=XLSX.utils.book_new();
-  const rows=[['Estado','Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Recurrente']];
-  ['VENCIDO','Vence HOY','Esta semana','Próximo','Sin fecha'].forEach(sec=>{
+  const rows=[['Estado','Título','Empresa','Proveedor','Monto','Vencimiento','Recurrente']];
+  ['⚠ VENCIDO','Hoy','Esta semana','Próximo','Sin fecha'].forEach(sec=>{
     const items=pend.filter(t=>estado(t)===sec);if(!items.length)return;
     rows.push([sec,'','','','','','']);
-    items.forEach(t=>rows.push(['',t.titulo,t.empresa||'Personal',t.proveedor||'—',t.monto?parseFloat(t.monto):0,t.fecha||'Sin fecha',t.recur?'Sí':'No']));
+    items.forEach(t=>rows.push(['',t.titulo,t.empresa||'Personal',t.proveedor||'—',parseFloat(t.monto)||0,t.fecha||'Sin fecha',t.recur?'Sí':'No']));
     const tot=items.reduce((s,t)=>s+(parseFloat(t.monto)||0),0);
     if(tot)rows.push(['Total '+sec,'','','',tot,'','']);
     rows.push(['','','','','','','']);
   });
   rows.push(['TOTAL PENDIENTE','','','',pend.reduce((s,t)=>s+(parseFloat(t.monto)||0),0),'','']);
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:16},{wch:30},{wch:12},{wch:18},{wch:14},{wch:16},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws,'Pagos Pendientes');
+  ws['!cols']=[{wch:14},{wch:28},{wch:12},{wch:18},{wch:14},{wch:14},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws,'Pendientes');
   XLSX.writeFile(wb,'pagos_pendientes_'+ts()+'.xlsx');
-  toast('Excel descargado');
+  toast('✓ Excel descargado');
 }
 
 function exportRealizadosFiltrado(){
@@ -1720,27 +1950,30 @@ function exportRealizadosFiltrado(){
   if(!real.length){toast('Sin pagos en ese rango');return;}
   real.sort((a,b)=>(a.fechaPago||a.fecha||'').localeCompare(b.fechaPago||b.fecha||''));
   const wb=XLSX.utils.book_new();
-  const rows=[['Título','Empresa','Proveedor','Monto','Fecha Vencimiento','Fecha de Pago','Recurrente']];
-  // Agrupar por mes
+  // Hoja 1: Todos
+  const rows=[['Título','Empresa','Proveedor','Monto','Fecha Venc','Fecha Pago','Recurrente']];
   const meses={};
   real.forEach(t=>{const m=(t.fechaPago||t.fecha||ts()).substring(0,7);if(!meses[m])meses[m]=[];meses[m].push(t);});
   Object.keys(meses).sort().forEach(mes=>{
     const[y,m]=mes.split('-');
     rows.push([MN[parseInt(m)-1]+' '+y,'','','','','','']);
-    meses[mes].forEach(t=>rows.push([t.titulo,t.empresa||'Personal',t.proveedor||'—',t.monto?parseFloat(t.monto):0,t.fecha||'—',t.fechaPago||t.fecha||'—',t.recur?'Sí':'No']));
-    const tot=meses[mes].reduce((s,t)=>s+(parseFloat(t.monto)||0),0);
-    rows.push(['Subtotal','','','',tot,'','']);
+    meses[mes].forEach(t=>rows.push([t.titulo,t.empresa||'Personal',t.proveedor||'—',parseFloat(t.monto)||0,t.fecha||'—',t.fechaPago||'—',t.recur?'Sí':'No']));
+    rows.push(['Subtotal','','',meses[mes].reduce((s,t)=>s+(parseFloat(t.monto)||0),0),'','','']);
     rows.push(['','','','','','','']);
   });
-  rows.push(['TOTAL PAGADO','','','',real.reduce((s,t)=>s+(parseFloat(t.monto)||0),0),'','']);
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:30},{wch:12},{wch:18},{wch:14},{wch:16},{wch:14},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws,'Pagos Realizados');
+  rows.push(['TOTAL','','',real.reduce((s,t)=>s+(parseFloat(t.monto)||0),0),'','','']);
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:26},{wch:12},{wch:16},{wch:14},{wch:13},{wch:13},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws,'Todos');
+  // Hoja 2: Personal
+  const pers=real.filter(t=>!t.empresa||t.empresa==='personal'||t.empresa==='Personal');
+  if(pers.length){const wp=XLSX.utils.aoa_to_sheet([rows[0],...pers.map(t=>[t.titulo,'Personal',t.proveedor||'—',parseFloat(t.monto)||0,t.fecha||'—',t.fechaPago||'—',t.recur?'Sí':'No'])]);XLSX.utils.book_append_sheet(wb,wp,'Personal');}
+  // Hoja 3: Seis8
+  const s8=real.filter(t=>t.empresa==='seis8'||t.empresa==='Seis8');
+  if(s8.length){const ws8=XLSX.utils.aoa_to_sheet([rows[0],...s8.map(t=>[t.titulo,'Seis8',t.proveedor||'—',parseFloat(t.monto)||0,t.fecha||'—',t.fechaPago||'—',t.recur?'Sí':'No'])]);XLSX.utils.book_append_sheet(wb,ws8,'Seis8');}
   const suf=desde&&hasta?desde+'_'+hasta:ts();
   XLSX.writeFile(wb,'pagos_realizados_'+suf+'.xlsx');
-  toast('Excel descargado');
+  toast('✓ Excel con '+(pers.length?'Personal ':'')+(s8.length?'+ Seis8':''));
 }
-// ─── INIT ─────────────────────────────────────────────────────
 window.addEventListener('load',()=>{initAuth();setTimeout(processRecur,3000);});
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openModal();}
